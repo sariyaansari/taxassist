@@ -7,7 +7,17 @@ TaxAssist is a comprehensive tax filing web application that connects tax consul
 - **Frontend**: React.js with Tailwind CSS, shadcn/ui components
 - **Backend**: FastAPI (Python) with JWT authentication
 - **Database**: MongoDB
+- **Storage**: Configurable - Local filesystem or AWS S3
+- **Payments**: Configurable - Mock, PhonePe, Razorpay, Stripe
 - **Design System**: Organic Professional theme with Deep Forest Green (#0f2e1f) primary, Bone White (#f5f5f0) secondary, Terracotta (#c25e00) accent
+
+## Configuration System
+The app uses environment-based configuration for flexibility:
+```
+STORAGE_PROVIDER=local|aws_s3
+PAYMENT_GATEWAY=mock|phonepe|razorpay|stripe
+AUTH_PROVIDER=jwt_local|aws_cognito
+```
 
 ## User Personas
 1. **Tax Consultant (Admin)**: Manages tax plans, reviews documents, communicates with clients
