@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone
 import hashlib
@@ -16,6 +16,9 @@ import base64
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Import configuration
+from config import config, StorageProvider, PaymentGateway
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -26,7 +29,7 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'tax-assist-secret-key-2024')
 security = HTTPBearer()
 
-app = FastAPI()
+app = FastAPI(title="TaxAssist API", version="1.1.0")
 api_router = APIRouter(prefix="/api")
 
 # ================== MODELS ==================
@@ -98,10 +101,15 @@ class MessageCreate(BaseModel):
     content: str
     recipient_id: Optional[str] = None  # For admin sending to specific user
 
-class PaymentCreate(BaseModel):
+# Payment Models - Updated for gateway flexibility
+class PaymentInitiate(BaseModel):
     request_id: str
     amount: float
-    payment_method: str
+    return_url: Optional[str] = None
+
+class PaymentVerify(BaseModel):
+    payment_id: str
+    gateway_data: Optional[Dict] = None
 
 # ================== HELPER FUNCTIONS ==================
 
@@ -133,6 +141,20 @@ async def require_admin(user: dict = Depends(get_current_user)):
     if user["user_type"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+# ================== CONFIGURATION ENDPOINT ==================
+
+@api_router.get("/config/public")
+async def get_public_config():
+    """Get public configuration for frontend"""
+    return {
+        "payment_gateway": config.payment_gateway.value,
+        "storage_provider": config.storage_provider.value,
+        "features": {
+            "aws_enabled": config.is_aws_storage(),
+            "phonepe_enabled": config.payment_gateway == PaymentGateway.PHONEPE
+        }
+    }
 
 # ================== AUTH ROUTES ==================
 
@@ -284,7 +306,7 @@ async def create_filing_request(data: TaxFilingRequestCreate, user: dict = Depen
         "price": plan["price"],
         "required_documents": plan["required_documents"],
         "financial_year": data.financial_year,
-        "status": "pending",  # pending, documents_uploaded, under_review, completed, rejected
+        "status": "pending",
         "payment_status": "unpaid",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
@@ -315,6 +337,13 @@ async def upload_document(request_id: str, data: DocumentUpload, user: dict = De
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
+    # Use configurable storage service
+    storage_key = None
+    if config.is_aws_storage():
+        from services.storage import get_storage_service
+        storage = get_storage_service()
+        storage_key = await storage.upload_file(data.file_data, data.file_name, f"documents/{request_id}")
+    
     document = {
         "id": str(uuid.uuid4()),
         "request_id": request_id,
@@ -323,8 +352,10 @@ async def upload_document(request_id: str, data: DocumentUpload, user: dict = De
         "name": data.name,
         "document_type": data.document_type,
         "file_name": data.file_name,
-        "file_data": data.file_data,
-        "status": "pending",  # pending, approved, rejected, needs_revision
+        "file_data": data.file_data if not config.is_aws_storage() else None,  # Only store in DB if not using S3
+        "storage_key": storage_key,  # S3 key if using AWS
+        "storage_provider": config.storage_provider.value,
+        "status": "pending",
         "admin_notes": "",
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "reviewed_at": None
@@ -338,6 +369,7 @@ async def upload_document(request_id: str, data: DocumentUpload, user: dict = De
     )
     
     document.pop("_id", None)
+    document.pop("file_data", None)  # Don't return file data in response
     return document
 
 @api_router.get("/requests/{request_id}/documents")
@@ -358,7 +390,15 @@ async def download_document(document_id: str, user: dict = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Document not found")
     if user["user_type"] != "admin" and document["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
-    return {"file_data": document["file_data"], "file_name": document["file_name"]}
+    
+    # Handle different storage providers
+    if document.get("storage_provider") == "aws_s3" and document.get("storage_key"):
+        from services.storage import get_storage_service
+        storage = get_storage_service()
+        file_data, file_name = await storage.download_file(document["storage_key"])
+        return {"file_data": base64.b64encode(file_data).decode(), "file_name": file_name}
+    else:
+        return {"file_data": document.get("file_data", ""), "file_name": document["file_name"]}
 
 # ================== ADMIN DOCUMENTS ==================
 
@@ -411,7 +451,7 @@ async def send_message(data: MessageCreate, user: dict = Depends(get_current_use
         "sender_id": user["id"],
         "sender_name": user["name"],
         "sender_type": user["user_type"],
-        "recipient_id": data.recipient_id,  # None for client messages (goes to admin)
+        "recipient_id": data.recipient_id,
         "content": data.content,
         "is_read": False,
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -423,10 +463,8 @@ async def send_message(data: MessageCreate, user: dict = Depends(get_current_use
 @api_router.get("/messages")
 async def get_my_messages(user: dict = Depends(get_current_user)):
     if user["user_type"] == "admin":
-        # Admin sees all messages
         messages = await db.messages.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     else:
-        # Client sees their own messages and messages sent to them
         messages = await db.messages.find(
             {"$or": [{"sender_id": user["id"]}, {"recipient_id": user["id"]}]},
             {"_id": 0}
@@ -437,18 +475,12 @@ async def get_my_messages(user: dict = Depends(get_current_user)):
 async def get_conversation(user_id: str, user: dict = Depends(get_current_user)):
     if user["user_type"] == "admin":
         messages = await db.messages.find(
-            {"$or": [
-                {"sender_id": user_id},
-                {"recipient_id": user_id}
-            ]},
+            {"$or": [{"sender_id": user_id}, {"recipient_id": user_id}]},
             {"_id": 0}
         ).sort("created_at", 1).to_list(500)
     else:
         messages = await db.messages.find(
-            {"$or": [
-                {"sender_id": user["id"]},
-                {"recipient_id": user["id"]}
-            ]},
+            {"$or": [{"sender_id": user["id"]}, {"recipient_id": user["id"]}]},
             {"_id": 0}
         ).sort("created_at", 1).to_list(100)
     return messages
@@ -462,7 +494,6 @@ async def mark_message_read(message_id: str, user: dict = Depends(get_current_us
 
 @api_router.get("/admin/messages/recent")
 async def get_recent_messages_per_user(admin: dict = Depends(require_admin)):
-    # Get unique client users who have sent messages
     pipeline = [
         {"$match": {"sender_type": "client"}},
         {"$sort": {"created_at": -1}},
@@ -486,29 +517,127 @@ async def get_recent_messages_per_user(admin: dict = Depends(require_admin)):
         for msg in recent_messages
     ]
 
-# ================== PAYMENTS ==================
+# ================== PAYMENTS - Updated for Gateway Flexibility ==================
 
-@api_router.post("/payments")
-async def create_payment(data: PaymentCreate, user: dict = Depends(get_current_user)):
+@api_router.post("/payments/initiate")
+async def initiate_payment(data: PaymentInitiate, user: dict = Depends(get_current_user)):
+    """Initiate payment through configured gateway"""
+    from services.payment import payment_service, PaymentRequest
+    
     request = await db.filing_requests.find_one({"id": data.request_id, "user_id": user["id"]}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    payment_request = PaymentRequest(
+        order_id=data.request_id,
+        amount=data.amount,
+        user_id=user["id"],
+        user_name=user["name"],
+        user_email=user["email"],
+        user_phone=user.get("phone", ""),
+        description=f"Tax Filing - {request['plan_name']} - FY {request['financial_year']}",
+        return_url=data.return_url,
+        callback_url=os.environ.get("PAYMENT_CALLBACK_URL")
+    )
+    
+    response = await payment_service.create_payment(payment_request)
+    
+    # Store payment record
+    payment_record = {
+        "id": response.payment_id,
+        "request_id": data.request_id,
+        "user_id": user["id"],
+        "user_name": user["name"],
+        "amount": data.amount,
+        "gateway": response.gateway,
+        "gateway_order_id": response.gateway_order_id,
+        "status": response.status.value,
+        "payment_url": response.payment_url,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.payments.insert_one(payment_record)
+    
+    return {
+        "payment_id": response.payment_id,
+        "status": response.status.value,
+        "gateway": response.gateway,
+        "payment_url": response.payment_url,
+        "message": response.message
+    }
+
+@api_router.post("/payments/verify")
+async def verify_payment(data: PaymentVerify, user: dict = Depends(get_current_user)):
+    """Verify payment status"""
+    from services.payment import payment_service
+    
+    verification = await payment_service.verify_payment(data.payment_id, data.gateway_data or {})
+    
+    # Update payment record
+    await db.payments.update_one(
+        {"id": data.payment_id},
+        {"$set": {
+            "status": verification.status.value,
+            "gateway_transaction_id": verification.gateway_transaction_id,
+            "verified_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # If payment successful, update request status
+    if verification.verified:
+        payment = await db.payments.find_one({"id": data.payment_id}, {"_id": 0})
+        if payment:
+            await db.filing_requests.update_one(
+                {"id": payment["request_id"]},
+                {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
+            )
+    
+    return {
+        "payment_id": verification.payment_id,
+        "status": verification.status.value,
+        "verified": verification.verified,
+        "message": verification.message
+    }
+
+@api_router.get("/payments/{payment_id}/status")
+async def check_payment_status(payment_id: str, user: dict = Depends(get_current_user)):
+    """Check payment status"""
+    from services.payment import payment_service
+    
+    verification = await payment_service.check_status(payment_id)
+    return {
+        "payment_id": verification.payment_id,
+        "status": verification.status.value,
+        "verified": verification.verified,
+        "message": verification.message
+    }
+
+# Legacy payment endpoint for backward compatibility
+@api_router.post("/payments")
+async def create_payment_legacy(data: dict, user: dict = Depends(get_current_user)):
+    """Legacy payment endpoint - creates mock payment directly"""
+    request_id = data.get("request_id")
+    amount = data.get("amount")
+    payment_method = data.get("payment_method", "mock")
+    
+    request = await db.filing_requests.find_one({"id": request_id, "user_id": user["id"]}, {"_id": 0})
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
     payment = {
         "id": str(uuid.uuid4()),
-        "request_id": data.request_id,
+        "request_id": request_id,
         "user_id": user["id"],
         "user_name": user["name"],
-        "amount": data.amount,
-        "payment_method": data.payment_method,
-        "status": "completed",  # For demo, auto-complete
+        "amount": amount,
+        "payment_method": payment_method,
+        "gateway": "mock",
+        "status": "completed",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.payments.insert_one(payment)
     
-    # Update request payment status
     await db.filing_requests.update_one(
-        {"id": data.request_id},
+        {"id": request_id},
         {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
@@ -533,11 +662,9 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
     
     total_users = await db.users.count_documents({"user_type": "client"})
     
-    # Payment stats
-    payments = await db.payments.find({}, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find({"status": "completed"}, {"_id": 0}).to_list(1000)
     total_revenue = sum(p["amount"] for p in payments)
     
-    # Unread messages
     unread_messages = await db.messages.count_documents({"sender_type": "client", "is_read": False})
     
     return {
@@ -548,7 +675,11 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
         "pending_documents": pending_documents,
         "total_users": total_users,
         "total_revenue": total_revenue,
-        "unread_messages": unread_messages
+        "unread_messages": unread_messages,
+        "config": {
+            "payment_gateway": config.payment_gateway.value,
+            "storage_provider": config.storage_provider.value
+        }
     }
 
 @api_router.get("/admin/payments")
@@ -560,7 +691,14 @@ async def get_all_payments(admin: dict = Depends(require_admin)):
 
 @api_router.get("/")
 async def root():
-    return {"message": "TaxAssist API", "version": "1.0.0"}
+    return {
+        "message": "TaxAssist API",
+        "version": "1.1.0",
+        "config": {
+            "payment_gateway": config.payment_gateway.value,
+            "storage_provider": config.storage_provider.value
+        }
+    }
 
 # Include router
 app.include_router(api_router)
