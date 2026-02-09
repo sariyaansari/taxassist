@@ -91,6 +91,30 @@ MONGO_URL="mongodb://localhost:27017"
 DB_NAME="taxassist_db"
 CORS_ORIGINS="*"
 JWT_SECRET="your-secret-key-change-in-production"
+
+# Storage Configuration: "local" or "aws_s3"
+STORAGE_PROVIDER="local"
+
+# Auth Configuration: "jwt_local" or "aws_cognito"
+AUTH_PROVIDER="jwt_local"
+
+# Payment Gateway: "mock", "phonepe", "razorpay", "stripe"
+PAYMENT_GATEWAY="mock"
+
+# AWS Configuration (required if STORAGE_PROVIDER=aws_s3)
+AWS_REGION="ap-south-1"
+AWS_S3_BUCKET=""
+AWS_ACCESS_KEY_ID=""
+AWS_SECRET_ACCESS_KEY=""
+
+# PhonePe Configuration (required if PAYMENT_GATEWAY=phonepe)
+PHONEPE_MERCHANT_ID=""
+PHONEPE_SALT_KEY=""
+PHONEPE_SALT_INDEX="1"
+PHONEPE_ENV="UAT"  # UAT or PROD
+
+# Payment callback URL (for production)
+PAYMENT_CALLBACK_URL=""
 EOF
 
 # Run the backend server
