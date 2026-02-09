@@ -77,13 +77,20 @@ AUTH_PROVIDER=jwt_local|aws_cognito
 ## Prioritized Backlog
 ### P0 (Critical)
 - All core features implemented ✅
+- Configurable storage (Local/AWS S3) ✅
+- Configurable payments (Mock/PhonePe ready) ✅
 
 ### P1 (High Priority)
+- PhonePe production integration (credentials needed)
+- AWS S3 production setup (credentials needed)
 - Email notifications for status updates
 - Document preview in browser
 - Password reset functionality
 
 ### P2 (Medium Priority)
+- Razorpay payment gateway
+- Stripe payment gateway
+- AWS Cognito authentication
 - Multiple admin users with roles
 - Automated document validation
 - Report generation (PDF)
@@ -94,7 +101,8 @@ AUTH_PROVIDER=jwt_local|aws_cognito
 - AI-powered document classification
 
 ## Next Tasks
-1. Add email notifications (SendGrid/Resend)
-2. Implement document preview functionality
-3. Add password reset flow
-4. Create downloadable tax summary reports
+1. Get PhonePe production credentials and test integration
+2. Get AWS credentials for S3 storage
+3. Add email notifications (SendGrid/Resend)
+4. Implement document preview functionality
+5. Add password reset flow
