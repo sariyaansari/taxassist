@@ -46,16 +46,29 @@ AUTH_PROVIDER=jwt_local|aws_cognito
 - Auth: Register, Login, Profile
 - Plans: CRUD operations (admin), Public listing
 - Requests: Create filing request, View requests
-- Documents: Upload, Download, Status update
+- Documents: Upload, Download, Status update (supports S3)
 - Messages: Send/receive, Conversations
-- Payments: Create payment, View history
+- Payments: Initiate, Verify, Status (gateway-agnostic)
 - Admin Stats: Dashboard analytics
+- Config: Public configuration endpoint
+
+### Configuration System (Feb 9, 2025)
+- **Storage Service**: Abstracted storage with Local and AWS S3 support
+- **Payment Service**: Gateway-agnostic payment processing
+  - Mock gateway for testing
+  - PhonePe integration ready
+  - Extensible for Razorpay, Stripe
+- **Environment-based switching**: Change providers via .env
 
 ### Frontend Pages
 - Landing Page (hero, features, how it works)
 - Login/Register Pages
 - Client: Dashboard, Plans, Request Details, Messages
 - Admin: Dashboard, Plans Management, Requests, Documents, Messages, Payments
+
+### UI Fixes (Feb 9, 2025)
+- Fixed dialog/popup backgrounds for better readability
+- Improved modal contrast and styling
 
 ## Test Credentials
 - **Admin**: admin@taxassist.com / admin123
