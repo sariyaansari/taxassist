@@ -68,7 +68,32 @@ AUTH_PROVIDER=jwt_local|aws_cognito
 
 ### UI Fixes (Feb 9, 2025)
 - Fixed dialog/popup backgrounds for better readability
+- Fixed dropdown/select components with white backgrounds
 - Improved modal contrast and styling
+
+### Admin Panel Improvements (Feb 9, 2025)
+- **Documents Page**: Now organized by user/case with expandable sections
+  - Shows user name, email, plan, FY
+  - Document count and pending count badges
+  - Download and Review buttons inline
+- **Requests Page**: Enhanced View modal with tabs
+  - Details tab: Client info and required documents
+  - Documents tab: Full document list with download/review
+  - Messages tab: Conversation history
+- **Messages Page**: Added Client Info panel
+  - Shows user's active cases with status
+  - Quick link to view documents
+  - Case details (plan, FY, payment status)
+
+### Client App Improvements (Feb 9, 2025)
+- **Request Page**: Completely redesigned document upload flow
+  - Progress bar showing approval percentage
+  - Clickable document slots for each required document
+  - Click to upload - opens file picker directly
+  - Rejected documents show "Replace" button
+  - Payment section only appears after all docs uploaded
+  - Additional document upload option available
+  - Clear status indicators (missing, pending, approved, rejected)
 
 ## Test Credentials
 - **Admin**: admin@taxassist.com / admin123
