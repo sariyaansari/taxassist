@@ -1,0 +1,132 @@
+{
+  "identity": {
+    "name": "TaxAssist",
+    "persona": "E1 - The Anti-AI Designer",
+    "vibe": "Organic Professional - Trustworthy, Precise, Human",
+    "archetype": "Archetype 1 (Organic & Earthy) mixed with Archetype 4 (Swiss)",
+    "theme_strategy": "Light Mode Dominant (Trust) with High-Contrast Dark Accents (Authority)"
+  },
+  "typography": {
+    "headings": {
+      "family": "Fraunces, serif",
+      "weights": ["300", "600", "700"],
+      "usage": "Use for all H1-H3. Tight tracking (-0.02em).",
+      "fallback": "Playfair Display, serif"
+    },
+    "body": {
+      "family": "DM Sans, sans-serif",
+      "weights": ["400", "500", "700"],
+      "usage": "Use for all body text, UI elements, and data tables.",
+      "fallback": "Inter, sans-serif"
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "Use for financial figures, tax codes, and IDs."
+    }
+  },
+  "colors": {
+    "primary": {
+      "DEFAULT": "#0f2e1f",
+      "foreground": "#ffffff",
+      "description": "Deep Forest Green - Represents growth, money, and stability."
+    },
+    "secondary": {
+      "DEFAULT": "#f5f5f0",
+      "foreground": "#0f2e1f",
+      "description": "Bone White / Sand - Paper-like, organic background."
+    },
+    "accent": {
+      "DEFAULT": "#c25e00",
+      "foreground": "#ffffff",
+      "description": "Terracotta - For primary CTAs and alerts. Warm but urgent."
+    },
+    "background": "#ffffff",
+    "foreground": "#0f2e1f",
+    "muted": "#e6e6e0",
+    "border": "#d1d1cc",
+    "success": "#2e7d32",
+    "warning": "#ed6c02",
+    "error": "#d32f2f"
+  },
+  "visual_enhancers": {
+    "texture": "Add a subtle noise texture (opacity 0.03) to all solid backgrounds to avoid 'digital flatness'.",
+    "shadows": "Use 'layered' shadows: shadow-sm + shadow-xl (low opacity) for depth.",
+    "borders": "1px solid borders with 10% opacity for a crisp, technical look.",
+    "glassmorphism": "Use backdrop-blur-xl with bg-white/80 for sticky headers and modals.",
+    "gradients": "NO full-screen gradients. Use subtle mesh gradients only in 'Tracing Beam' borders."
+  },
+  "layout_strategy": {
+    "spacing": "Generous. Use p-8 to p-12 for section padding. Gap-6 to Gap-8 for grids.",
+    "grid_system": {
+      "marketing": "Mode A: Tetris Grid (Asymmetrical, Artful).",
+      "dashboard": "Mode B: High Density Grid (Functional, Dense)."
+    },
+    "containers": "Max-width 1400px for dashboards, 1200px for reading content."
+  },
+  "components": {
+    "buttons": {
+      "style": "Sharp edges (rounded-sm) or Pill (rounded-full). High contrast.",
+      "hover": "Transform -translate-y-0.5, shadow-lg."
+    },
+    "cards": {
+      "style": "Flat background, 1px border, no default shadow. Hover adds shadow and lift.",
+      "special": "Use 'Tracing Beam' effect for Pricing Plans."
+    },
+    "inputs": {
+      "style": "Minimalist. bg-transparent border-b border-input focus:border-primary focus:ring-0 rounded-none px-0.",
+      "note": "For complex forms, use standard boxed inputs with rounded-md."
+    },
+    "navigation": {
+      "sidebar": "Fixed left, dark mode (Deep Forest Green) for Admin.",
+      "topbar": "Glassmorphic sticky header for Client."
+    }
+  },
+  "media": {
+    "image_urls": {
+      "hero_background": "https://images.unsplash.com/photo-1708704785717-7633121c3bcf",
+      "client_success": "https://images.unsplash.com/photo-1612723203798-321285cf5e3e",
+      "admin_workspace": "https://images.unsplash.com/photo-1696087225391-eb97abf5ba20",
+      "minimal_desk": "https://images.unsplash.com/photo-1622579521534-8252f7da47fd"
+    },
+    "icons": "Use 'lucide-react' for standard UI. Use 'phosphor-icons' (Duotone) for feature highlights."
+  },
+  "motion": {
+    "transitions": "transition-all duration-300 ease-out",
+    "micro_interactions": "Buttons scale 0.98 on click. Links have underline slide animation.",
+    "page_load": "Staggered fade-in-up for dashboard widgets."
+  },
+  "accessibility": {
+    "contrast": "Ensure 4.5:1 contrast for text. Use APCA standards.",
+    "focus_states": "Visible ring-2 ring-offset-2 ring-accent.",
+    "reduced_motion": "Respect prefers-reduced-motion media query."
+  },
+  "instructions_to_main_agent": [
+    "Implement the 'Tetris Grid' for the Landing Page hero section.",
+    "Use the 'Deep Forest Green' sidebar for the Admin Panel to distinguish it from the Client App.",
+    "Ensure all forms use 'react-hook-form' with 'zod' validation.",
+    "Use 'sonner' for all toast notifications.",
+    "Add 'data-testid' to every interactive element (buttons, inputs, links).",
+    "Do NOT use generic 'SaaS Blue'. Stick to the Green/Bone/Terracotta palette.",
+    "For the Document Upload section, use a large drag-and-drop zone with the 'minimal_desk' image as a subtle background overlay."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use 'sonner' for toasts. Sonner component are located in /app/src/components/ui/sonner.tsx"
+  ]
+}
