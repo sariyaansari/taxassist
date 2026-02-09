@@ -25,6 +25,36 @@ A comprehensive tax filing web application that connects tax consultants with in
 - **Frontend**: React.js, Tailwind CSS, shadcn/ui components
 - **Backend**: FastAPI (Python), JWT Authentication
 - **Database**: MongoDB
+- **Storage**: Local or AWS S3 (configurable)
+- **Payments**: Mock, PhonePe, Razorpay, Stripe (configurable)
+
+## Architecture - Configurable Services
+
+The application supports switching between local and cloud services via environment variables:
+
+### Storage Providers
+| Provider | Config Value | Description |
+|----------|--------------|-------------|
+| Local | `local` | Files stored on local filesystem |
+| AWS S3 | `aws_s3` | Files stored in Amazon S3 bucket |
+
+### Payment Gateways
+| Gateway | Config Value | Description |
+|---------|--------------|-------------|
+| Mock | `mock` | Test payments (auto-succeeds) |
+| PhonePe | `phonepe` | PhonePe UPI payments |
+| Razorpay | `razorpay` | Razorpay payment gateway |
+| Stripe | `stripe` | Stripe payment gateway |
+
+### Switching Providers
+Simply update the `.env` file:
+```bash
+# Use AWS S3 for storage
+STORAGE_PROVIDER="aws_s3"
+
+# Use PhonePe for payments
+PAYMENT_GATEWAY="phonepe"
+```
 
 ## Prerequisites
 
