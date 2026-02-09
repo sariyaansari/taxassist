@@ -3,13 +3,12 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ClientLayout } from "../components/ClientLayout";
 import { api } from "../App";
 import { toast } from "sonner";
-import { Upload, FileText, Check, X, AlertTriangle, CreditCard, Send, ArrowLeft } from "lucide-react";
+import { Upload, FileText, Check, X, AlertTriangle, CreditCard, Send, ArrowLeft, RefreshCw, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ClientRequest = () => {
   const { requestId } = useParams();
@@ -20,15 +19,15 @@ const ClientRequest = () => {
   const [documents, setDocuments] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
   
   // Upload state
-  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadingFor, setUploadingFor] = useState(null); // Document type we're uploading for
+  const [replaceDocId, setReplaceDocId] = useState(null); // Document ID to replace
   const [uploadFile, setUploadFile] = useState(null);
-  const [docType, setDocType] = useState("");
   const [docName, setDocName] = useState("");
+  const [uploading, setUploading] = useState(false);
   
   // Payment state
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -57,6 +56,52 @@ const ClientRequest = () => {
     }
   };
 
+  // Get document for a specific type
+  const getDocumentForType = (docType) => {
+    return documents.find(d => d.document_type === docType);
+  };
+
+  // Check if all required documents are uploaded and approved
+  const allDocsApproved = () => {
+    if (!request) return false;
+    return request.required_documents.every(docType => {
+      const doc = getDocumentForType(docType);
+      return doc && doc.status === 'approved';
+    });
+  };
+
+  // Check if all required documents are uploaded (any status)
+  const allDocsUploaded = () => {
+    if (!request) return false;
+    return request.required_documents.every(docType => {
+      const doc = getDocumentForType(docType);
+      return doc !== undefined;
+    });
+  };
+
+  // Check if there are rejected documents that need re-upload
+  const hasRejectedDocs = () => {
+    return documents.some(d => d.status === 'rejected' || d.status === 'needs_revision');
+  };
+
+  // Handle click on required document - opens upload dialog
+  const handleDocumentClick = (docType) => {
+    const existingDoc = getDocumentForType(docType);
+    
+    if (existingDoc && (existingDoc.status === 'rejected' || existingDoc.status === 'needs_revision')) {
+      // Replace rejected document
+      setReplaceDocId(existingDoc.id);
+    } else if (existingDoc) {
+      // Document exists and is not rejected - no action
+      return;
+    }
+    
+    setUploadingFor(docType);
+    setDocName(docType);
+    fileInputRef.current?.click();
+  };
+
+  // Handle file selection
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -65,14 +110,17 @@ const ClientRequest = () => {
         return;
       }
       setUploadFile(file);
-      setDocName(file.name.split('.')[0]);
-      setShowUploadDialog(true);
+      if (!docName) {
+        setDocName(file.name.split('.')[0]);
+      }
     }
+    e.target.value = ''; // Reset input
   };
 
+  // Upload document
   const handleUpload = async () => {
-    if (!uploadFile || !docType || !docName) {
-      toast.error("Please fill all fields");
+    if (!uploadFile || !uploadingFor || !docName) {
+      toast.error("Please select a file");
       return;
     }
     
@@ -83,25 +131,30 @@ const ClientRequest = () => {
         const base64 = e.target.result.split(',')[1];
         await api.post(`/requests/${requestId}/documents`, {
           name: docName,
-          document_type: docType,
+          document_type: uploadingFor,
           file_data: base64,
           file_name: uploadFile.name
         });
         toast.success("Document uploaded successfully!");
-        setShowUploadDialog(false);
-        setUploadFile(null);
-        setDocType("");
-        setDocName("");
+        resetUploadState();
         fetchData();
       };
       reader.readAsDataURL(uploadFile);
     } catch (err) {
       toast.error("Failed to upload document");
-    } finally {
       setUploading(false);
     }
   };
 
+  const resetUploadState = () => {
+    setUploadFile(null);
+    setUploadingFor(null);
+    setReplaceDocId(null);
+    setDocName("");
+    setUploading(false);
+  };
+
+  // Send message
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
     
@@ -118,6 +171,7 @@ const ClientRequest = () => {
     }
   };
 
+  // Process payment
   const handlePayment = async () => {
     if (!paymentMethod) {
       toast.error("Please select a payment method");
@@ -141,8 +195,28 @@ const ClientRequest = () => {
     }
   };
 
-  const getStatusBadge = (status) => {
-    return <Badge className={`status-${status}`}>{status.replace('_', ' ')}</Badge>;
+  const getDocStatus = (docType) => {
+    const doc = getDocumentForType(docType);
+    if (!doc) return { status: 'missing', label: 'Upload Required', color: 'var(--muted)' };
+    
+    const statusMap = {
+      pending: { label: 'Under Review', color: 'var(--warning)' },
+      approved: { label: 'Approved', color: 'var(--success)' },
+      rejected: { label: 'Rejected - Reupload', color: 'var(--error)' },
+      needs_revision: { label: 'Needs Changes', color: 'var(--warning)' }
+    };
+    
+    return { status: doc.status, ...statusMap[doc.status], doc };
+  };
+
+  const getProgress = () => {
+    if (!request) return 0;
+    const total = request.required_documents.length;
+    const approved = request.required_documents.filter(dt => {
+      const doc = getDocumentForType(dt);
+      return doc && doc.status === 'approved';
+    }).length;
+    return Math.round((approved / total) * 100);
   };
 
   if (loading) {
@@ -157,9 +231,20 @@ const ClientRequest = () => {
 
   if (!request) return null;
 
+  const canPay = allDocsUploaded() && request.payment_status === 'unpaid' && !hasRejectedDocs();
+
   return (
     <ClientLayout>
       <div className="space-y-6">
+        {/* Hidden File Input */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          className="hidden"
+          accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+        />
+
         {/* Back Button & Header */}
         <div>
           <Button variant="ghost" onClick={() => navigate("/dashboard")} className="mb-4" data-testid="back-btn">
@@ -171,19 +256,117 @@ const ClientRequest = () => {
               <p className="opacity-70">FY {request.financial_year} • {request.plan_type === 'salary' ? 'Salary' : 'Business'}</p>
             </div>
             <div className="flex items-center gap-3">
-              {getStatusBadge(request.status)}
-              {getStatusBadge(request.payment_status)}
+              <Badge className={`status-${request.status}`}>{request.status.replace('_', ' ')}</Badge>
+              <Badge className={`status-${request.payment_status}`}>{request.payment_status}</Badge>
             </div>
           </div>
         </div>
 
-        {/* Payment Card */}
-        {request.payment_status === 'unpaid' && (
+        {/* Progress Overview */}
+        <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Document Progress</h2>
+            <span className="mono font-bold" style={{ color: 'var(--accent)' }}>{getProgress()}%</span>
+          </div>
+          <div className="progress-bar h-3 mb-2">
+            <div className="progress-fill" style={{ width: `${getProgress()}%` }}></div>
+          </div>
+          <p className="text-sm opacity-60">
+            {getProgress() === 100 ? 'All documents approved! Ready for filing.' : 
+             allDocsUploaded() ? 'Documents under review. We\'ll notify you of any updates.' :
+             'Upload all required documents to proceed.'}
+          </p>
+        </div>
+
+        {/* Required Documents - Click to Upload */}
+        <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
+          <h2 className="text-xl font-semibold mb-6" style={{ fontFamily: 'Fraunces, serif' }}>Required Documents</h2>
+          <p className="text-sm opacity-60 mb-4">Click on any document to upload. If rejected, click to replace.</p>
+          
+          <div className="grid gap-4">
+            {request.required_documents.map((docType, idx) => {
+              const docStatus = getDocStatus(docType);
+              const isClickable = docStatus.status === 'missing' || docStatus.status === 'rejected' || docStatus.status === 'needs_revision';
+              
+              return (
+                <div
+                  key={idx}
+                  onClick={() => isClickable && handleDocumentClick(docType)}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    isClickable ? 'cursor-pointer hover:shadow-md hover:border-orange-300' : 'cursor-default'
+                  }`}
+                  style={{ 
+                    borderColor: docStatus.status === 'missing' ? 'var(--border)' : docStatus.color,
+                    backgroundColor: docStatus.status === 'approved' ? '#f0fdf4' : 
+                                    docStatus.status === 'rejected' || docStatus.status === 'needs_revision' ? '#fef2f2' : 
+                                    'white'
+                  }}
+                  data-testid={`doc-slot-${idx}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                        docStatus.status === 'missing' ? 'border-2 border-dashed' : ''
+                      }`} style={{ 
+                        borderColor: docStatus.status === 'missing' ? 'var(--border)' : 'transparent',
+                        backgroundColor: docStatus.status === 'missing' ? 'transparent' : `${docStatus.color}20`
+                      }}>
+                        {docStatus.status === 'missing' ? (
+                          <Upload size={20} className="opacity-40" />
+                        ) : docStatus.status === 'approved' ? (
+                          <Check size={24} style={{ color: docStatus.color }} />
+                        ) : docStatus.status === 'rejected' || docStatus.status === 'needs_revision' ? (
+                          <RefreshCw size={20} style={{ color: docStatus.color }} />
+                        ) : (
+                          <FileText size={20} style={{ color: docStatus.color }} />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-medium">{docType}</p>
+                        <p className="text-sm" style={{ color: docStatus.color }}>{docStatus.label}</p>
+                        {docStatus.doc?.admin_notes && (
+                          <p className="text-sm mt-1 text-red-600">
+                            <AlertTriangle size={12} className="inline mr-1" />
+                            {docStatus.doc.admin_notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {isClickable && (
+                      <Button variant="outline" size="sm" className="shrink-0">
+                        {docStatus.status === 'missing' ? 'Upload' : 'Replace'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Additional Document Upload */}
+          <div className="mt-6 pt-6 border-t" style={{ borderColor: 'var(--border)' }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUploadingFor("Other");
+                setDocName("");
+                fileInputRef.current?.click();
+              }}
+              className="w-full"
+              data-testid="upload-additional-btn"
+            >
+              <Plus size={18} className="mr-2" /> Upload Additional Document
+            </Button>
+          </div>
+        </div>
+
+        {/* Payment Section - Only show if all docs uploaded and not rejected */}
+        {canPay && (
           <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--accent)', borderWidth: 2 }}>
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold mb-1">Payment Required</h3>
-                <p className="text-sm opacity-70">Complete payment to start the review process</p>
+                <h3 className="font-semibold mb-1">Ready for Payment</h3>
+                <p className="text-sm opacity-70">All documents uploaded. Complete payment to start review.</p>
               </div>
               <div className="text-right">
                 <p className="text-2xl font-bold mono" style={{ color: 'var(--accent)' }}>₹{request.price.toLocaleString()}</p>
@@ -195,70 +378,18 @@ const ClientRequest = () => {
           </div>
         )}
 
-        {/* Document Upload Section */}
-        <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold" style={{ fontFamily: 'Fraunces, serif' }}>Documents</h2>
-            <Button onClick={() => fileInputRef.current?.click()} className="btn-primary" data-testid="upload-doc-btn">
-              <Upload size={18} className="mr-2" /> Upload Document
-            </Button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              className="hidden"
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-            />
-          </div>
-
-          {/* Required Documents Checklist */}
-          <div className="mb-6">
-            <h3 className="font-medium mb-3">Required Documents:</h3>
-            <div className="grid md:grid-cols-2 gap-3">
-              {request.required_documents.map((doc, idx) => {
-                const uploaded = documents.find(d => d.document_type === doc);
-                return (
-                  <div key={idx} className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)' }}>
-                    {uploaded ? (
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--success)' }}>
-                        <Check size={14} className="text-white" />
-                      </div>
-                    ) : (
-                      <div className="w-6 h-6 rounded-full border-2 border-dashed" style={{ borderColor: 'var(--border)' }}></div>
-                    )}
-                    <span className={uploaded ? 'opacity-100' : 'opacity-60'}>{doc}</span>
-                    {uploaded && <Badge className={`status-${uploaded.status} ml-auto`}>{uploaded.status}</Badge>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Uploaded Documents */}
-          {documents.length > 0 && (
-            <div>
-              <h3 className="font-medium mb-3">Uploaded Documents:</h3>
-              <div className="space-y-3">
-                {documents.map((doc) => (
-                  <div key={doc.id} className="file-preview" data-testid={`doc-${doc.id}`}>
-                    <FileText size={24} style={{ color: 'var(--accent)' }} />
-                    <div className="flex-1">
-                      <p className="font-medium">{doc.name}</p>
-                      <p className="text-sm opacity-60">{doc.document_type} • {new Date(doc.uploaded_at).toLocaleDateString()}</p>
-                    </div>
-                    <Badge className={`status-${doc.status}`}>{doc.status}</Badge>
-                    {doc.admin_notes && (
-                      <div className="text-sm" style={{ color: 'var(--warning)' }}>
-                        <AlertTriangle size={14} className="inline mr-1" />
-                        {doc.admin_notes}
-                      </div>
-                    )}
-                  </div>
-                ))}
+        {/* Payment Already Done */}
+        {request.payment_status === 'paid' && (
+          <div className="bg-green-50 rounded-xl border border-green-200 p-6">
+            <div className="flex items-center gap-3">
+              <Check size={24} className="text-green-600" />
+              <div>
+                <h3 className="font-semibold text-green-800">Payment Complete</h3>
+                <p className="text-sm text-green-600">Your tax filing is being processed by our team.</p>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Messages Section */}
         <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--border)' }}>
@@ -271,7 +402,11 @@ const ClientRequest = () => {
               messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`max-w-[80%] p-4 ${msg.sender_type === 'client' ? 'chat-bubble-client ml-auto' : 'chat-bubble-admin'}`}
+                  className={`max-w-[80%] p-4 rounded-lg ${msg.sender_type === 'client' ? 'ml-auto' : ''}`}
+                  style={{ 
+                    backgroundColor: msg.sender_type === 'client' ? 'var(--primary)' : 'var(--secondary)',
+                    color: msg.sender_type === 'client' ? 'white' : 'inherit'
+                  }}
                   data-testid={`message-${msg.id}`}
                 >
                   <p className="text-sm">{msg.content}</p>
@@ -303,16 +438,18 @@ const ClientRequest = () => {
         </div>
       </div>
 
-      {/* Upload Dialog */}
-      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+      {/* Upload Confirmation Dialog */}
+      <Dialog open={!!uploadFile} onOpenChange={() => resetUploadState()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle style={{ fontFamily: 'Fraunces, serif' }}>Upload Document</DialogTitle>
+            <DialogTitle style={{ fontFamily: 'Fraunces, serif' }}>
+              {replaceDocId ? 'Replace Document' : 'Upload Document'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div>
-              <p className="text-sm font-medium mb-2">Selected File:</p>
-              <p className="file-preview text-sm">{uploadFile?.name}</p>
+            <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)' }}>
+              <p className="font-medium">{uploadFile?.name}</p>
+              <p className="text-sm opacity-60">For: {uploadingFor}</p>
             </div>
             <div>
               <label className="text-sm font-medium">Document Name</label>
@@ -320,26 +457,13 @@ const ClientRequest = () => {
                 value={docName}
                 onChange={(e) => setDocName(e.target.value)}
                 className="mt-2"
+                placeholder="Enter document name"
                 data-testid="doc-name-input"
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">Document Type</label>
-              <Select value={docType} onValueChange={setDocType}>
-                <SelectTrigger className="mt-2" data-testid="doc-type-select">
-                  <SelectValue placeholder="Select document type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {request.required_documents.map((doc) => (
-                    <SelectItem key={doc} value={doc}>{doc}</SelectItem>
-                  ))}
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUploadDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={resetUploadState}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploading} className="btn-primary" data-testid="confirm-upload-btn">
               {uploading ? <span className="spinner" style={{ width: 20, height: 20 }}></span> : "Upload"}
             </Button>
@@ -354,27 +478,31 @@ const ClientRequest = () => {
             <DialogTitle style={{ fontFamily: 'Fraunces, serif' }}>Complete Payment</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="text-center py-4" style={{ backgroundColor: 'var(--secondary)' }}>
+            <div className="text-center py-4 rounded-lg" style={{ backgroundColor: 'var(--secondary)' }}>
               <p className="text-sm opacity-60">Total Amount</p>
               <p className="text-4xl font-bold mono" style={{ color: 'var(--accent)' }}>₹{request.price.toLocaleString()}</p>
             </div>
             <div>
               <label className="text-sm font-medium">Payment Method</label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="mt-2" data-testid="payment-method-select">
-                  <SelectValue placeholder="Select payment method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="upi">UPI</SelectItem>
-                  <SelectItem value="card">Credit/Debit Card</SelectItem>
-                  <SelectItem value="netbanking">Net Banking</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="grid grid-cols-3 gap-3 mt-2">
+                {['upi', 'card', 'netbanking'].map((method) => (
+                  <button
+                    key={method}
+                    onClick={() => setPaymentMethod(method)}
+                    className={`p-3 rounded-lg border-2 text-center transition-all ${
+                      paymentMethod === method ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                    data-testid={`payment-${method}`}
+                  >
+                    <p className="font-medium capitalize">{method === 'upi' ? 'UPI' : method === 'card' ? 'Card' : 'Net Banking'}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>Cancel</Button>
-            <Button onClick={handlePayment} disabled={processing} className="btn-primary" data-testid="confirm-payment-btn">
+            <Button onClick={handlePayment} disabled={processing || !paymentMethod} className="btn-primary" data-testid="confirm-payment-btn">
               {processing ? <span className="spinner" style={{ width: 20, height: 20 }}></span> : "Pay Now"}
             </Button>
           </DialogFooter>
