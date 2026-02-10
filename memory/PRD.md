@@ -170,7 +170,6 @@ Build a comprehensive tax filing assistance application with:
 ## Pending/Future Tasks
 
 ### P1 - High Priority
-- [ ] Smart email notifications (batch multiple document updates into single email)
 - [ ] PhonePe payment gateway integration
 - [ ] AWS S3 storage integration
 
