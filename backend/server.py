@@ -103,6 +103,9 @@ class ClientProfileUpdate(BaseModel):
 class TaxFilingRequestCreate(BaseModel):
     plan_id: str
     financial_year: str
+    offer_code: Optional[str] = None
+    offer_email: Optional[str] = None
+    offer_phone: Optional[str] = None
 
 class DocumentUpload(BaseModel):
     name: str
