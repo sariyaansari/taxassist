@@ -466,9 +466,12 @@ const ClientRequest = () => {
             <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)' }}>
               <p className="font-medium">{uploadFile?.name}</p>
               <p className="text-sm opacity-60">For: {uploadingFor}</p>
+              {replaceDocId && (
+                <p className="text-sm text-orange-600 mt-1">This will replace the existing document</p>
+              )}
             </div>
             <div>
-              <label className="text-sm font-medium">Document Name</label>
+              <Label>Document Name</Label>
               <Input
                 value={docName}
                 onChange={(e) => setDocName(e.target.value)}
@@ -477,11 +480,35 @@ const ClientRequest = () => {
                 data-testid="doc-name-input"
               />
             </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="hasPassword"
+                checked={hasPassword}
+                onCheckedChange={setHasPassword}
+              />
+              <label htmlFor="hasPassword" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+                <Lock size={14} /> This document has a password
+              </label>
+            </div>
+            {hasPassword && (
+              <div>
+                <Label>Document Password</Label>
+                <Input
+                  type="text"
+                  value={docPassword}
+                  onChange={(e) => setDocPassword(e.target.value)}
+                  className="mt-2"
+                  placeholder="Enter password to open document"
+                  data-testid="doc-password-input"
+                />
+                <p className="text-xs opacity-60 mt-1">This will help our team open your document</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={resetUploadState}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploading} className="btn-primary" data-testid="confirm-upload-btn">
-              {uploading ? <span className="spinner" style={{ width: 20, height: 20 }}></span> : "Upload"}
+              {uploading ? <span className="spinner" style={{ width: 20, height: 20 }}></span> : (replaceDocId ? "Replace" : "Upload")}
             </Button>
           </DialogFooter>
         </DialogContent>
