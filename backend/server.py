@@ -836,14 +836,39 @@ async def update_document_status(document_id: str, data: DocumentStatusUpdate, b
     return updated_doc
 
 @api_router.post("/admin/documents/{document_id}/allow-change")
-async def allow_document_change(document_id: str, admin: dict = Depends(require_admin)):
+async def allow_document_change(document_id: str, background_tasks: BackgroundTasks, admin: dict = Depends(require_admin)):
     """Allow client to change an approved document"""
+    if not check_permission(admin, "unlock_documents"):
+        if admin.get("admin_role") != "super_admin":
+            raise HTTPException(status_code=403, detail="Permission denied: unlock_documents required")
+    
+    document = await db.documents.find_one({"id": document_id}, {"_id": 0})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
     result = await db.documents.update_one(
         {"id": document_id},
-        {"$set": {"status": "needs_revision", "admin_notes": "Admin has allowed you to replace this document."}}
+        {"$set": {
+            "status": "needs_revision", 
+            "admin_notes": "Admin has unlocked this document for replacement.",
+            "unlocked_by": admin["id"],
+            "unlocked_at": datetime.now(timezone.utc).isoformat()
+        }}
     )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Notify user
+    user = await db.users.find_one({"id": document["user_id"]}, {"_id": 0})
+    request = await db.filing_requests.find_one({"id": document["request_id"]}, {"_id": 0})
+    
+    if user and request:
+        background_tasks.add_task(
+            email_service.send_document_status_update,
+            user["email"], user["name"],
+            document["name"], document["document_type"],
+            "needs_revision", "Admin has unlocked this document. You can now upload a new version.",
+            request["plan_name"], request["financial_year"]
+        )
+    
     return {"message": "Document change allowed"}
 
 # ================== MESSAGES ==================
