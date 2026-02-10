@@ -1,133 +1,239 @@
-# TaxAssist - Tax Filing Platform PRD
+# TaxAssist - Tax Filing Application PRD
 
-## Overview
-TaxAssist is a comprehensive tax filing web application that connects tax consultants (admin) with individuals filing taxes (clients). The platform supports both salaried professionals and business owners.
+## Original Problem Statement
+Build a comprehensive tax filing assistance application with:
+- **Admin Panel**: Manage tax plans, review documents, handle payments, communicate with clients
+- **Client App**: Select plans, upload documents, track status, communicate with admin
+- **Infrastructure**: Configurable storage (local/AWS S3), configurable payment gateway (mock/PhonePe), email notifications
 
-## Architecture
-- **Frontend**: React.js with Tailwind CSS, shadcn/ui components
-- **Backend**: FastAPI (Python) with JWT authentication
-- **Database**: MongoDB
-- **Storage**: Configurable - Local filesystem or AWS S3
-- **Payments**: Configurable - Mock, PhonePe, Razorpay, Stripe
-- **Design System**: Organic Professional theme with Deep Forest Green (#0f2e1f) primary, Bone White (#f5f5f0) secondary, Terracotta (#c25e00) accent
-
-## Configuration System
-The app uses environment-based configuration for flexibility:
-```
-STORAGE_PROVIDER=local|aws_s3
-PAYMENT_GATEWAY=mock|phonepe|razorpay|stripe
-AUTH_PROVIDER=jwt_local|aws_cognito
-```
+## Tech Stack
+- **Frontend**: React, TailwindCSS, shadcn/ui components
+- **Backend**: FastAPI (Python), MongoDB
+- **Authentication**: JWT-based
+- **Email**: Resend (when configured)
 
 ## User Personas
-1. **Tax Consultant (Admin)**: Manages tax plans, reviews documents, communicates with clients
-2. **Salaried Individual**: Files personal income tax returns
-3. **Business Owner**: Files business tax returns with more complex documentation
+1. **Super Admin**: Full access - manage plans, offers, users, settings, CA Admins
+2. **CA Admin**: Restricted access based on permissions - review documents, handle messages
+3. **Client**: Select plans, upload documents, track filing status, communicate with admin
 
-## Core Requirements (Static)
+## Core Requirements
+
 ### Admin Panel
-- ✅ Create and manage tax filing plans (Salary & Business)
-- ✅ Dashboard with request statistics
-- ✅ View recent messages from customers
-- ✅ Document review with status updates (approve/reject/needs revision)
-- ✅ Payment tracking and revenue statistics
+- ✅ Dashboard with statistics (requests, revenue, messages, offers)
+- ✅ Tax Plans management (create, edit, deactivate for salary/business)
+- ✅ Requests management (view all filings, update status)
+- ✅ Document review (approve/reject/request revision, unlock approved docs)
+- ✅ Messages (chat with clients)
+- ✅ Payments (view all payments)
+- ✅ Users management (view clients, manage admins)
+- ✅ **Offers management** (create discount offers with validity, code verification)
+- ✅ **Settings** (notification email, CA Admin permissions)
 
 ### Client App
 - ✅ User registration and login
-- ✅ Profile management
-- ✅ Select tax filing plans
-- ✅ Upload documents based on selected plan
-- ✅ Track progress/status of tax filing
-- ✅ Chat with admin support
-- ✅ Make payments
+- ✅ Plan selection with offer code support
+- ✅ Document upload with password protection
+- ✅ Document replacement (not duplication) for rejected docs
+- ✅ Status tracking
+- ✅ Chat with admin
+- ✅ Additional documents display
 
-## What's Been Implemented (Feb 9, 2025)
-### Backend API Endpoints
-- Auth: Register, Login, Profile
-- Plans: CRUD operations (admin), Public listing
-- Requests: Create filing request, View requests
-- Documents: Upload, Download, Status update (supports S3)
-- Messages: Send/receive, Conversations
-- Payments: Initiate, Verify, Status (gateway-agnostic)
-- Admin Stats: Dashboard analytics
-- Config: Public configuration endpoint
+### Infrastructure
+- ✅ Configurable storage provider (local/S3)
+- ✅ Configurable payment gateway (mock/PhonePe)
+- ✅ Email service integration (Resend)
+- ✅ Role-based access control (RBAC)
 
-### Configuration System (Feb 9, 2025)
-- **Storage Service**: Abstracted storage with Local and AWS S3 support
-- **Payment Service**: Gateway-agnostic payment processing
-  - Mock gateway for testing
-  - PhonePe integration ready
-  - Extensible for Razorpay, Stripe
-- **Environment-based switching**: Change providers via .env
+---
 
-### Frontend Pages
-- Landing Page (hero, features, how it works)
-- Login/Register Pages
-- Client: Dashboard, Plans, Request Details, Messages
-- Admin: Dashboard, Plans Management, Requests, Documents, Messages, Payments
+## Completed Features (December 2025)
 
-### UI Fixes (Feb 9, 2025)
-- Fixed dialog/popup backgrounds for better readability
-- Fixed dropdown/select components with white backgrounds
-- Improved modal contrast and styling
+### Session 1: Initial Build
+- Full-stack application with React frontend and FastAPI backend
+- MongoDB database integration
+- JWT authentication system
+- Admin and Client panels
+- Basic tax plans and document management
 
-### Admin Panel Improvements (Feb 9, 2025)
-- **Documents Page**: Now organized by user/case with expandable sections
-  - Shows user name, email, plan, FY
-  - Document count and pending count badges
-  - Download and Review buttons inline
-- **Requests Page**: Enhanced View modal with tabs
-  - Details tab: Client info and required documents
-  - Documents tab: Full document list with download/review
-  - Messages tab: Conversation history
-- **Messages Page**: Added Client Info panel
-  - Shows user's active cases with status
-  - Quick link to view documents
-  - Case details (plan, FY, payment status)
+### Session 2: Enhancements
+- Configurable backend architecture (storage/payment providers)
+- UI/UX improvements (dialogs, dropdowns)
+- Document workflow improvements
+- Basic admin roles (super_admin, ca_admin)
 
-### Client App Improvements (Feb 9, 2025)
-- **Request Page**: Completely redesigned document upload flow
-  - Progress bar showing approval percentage
-  - Clickable document slots for each required document
-  - Click to upload - opens file picker directly
-  - Rejected documents show "Replace" button
-  - Payment section only appears after all docs uploaded
-  - Additional document upload option available
-  - Clear status indicators (missing, pending, approved, rejected)
+### Session 3: Advanced Features (Current)
+1. **Tax Plan Offers System**
+   - Create/edit/deactivate offers with validity periods
+   - Discount types: percentage or fixed amount
+   - Max usage limits
+   - Email/phone linked verification (prevents reuse)
+   - Offer code validation API
+   - Client-side offer application during plan selection
+
+2. **Admin Settings**
+   - Configurable notification email
+   - Toggle email notifications (new case, payment, messages)
+
+3. **CA Admin RBAC**
+   - Granular permissions system
+   - Super Admin can manage CA Admin permissions
+   - Sidebar navigation filtered by permissions
+   - API endpoint protection
+
+4. **Approved Document Lock**
+   - Approved documents locked from client changes
+   - Admin unlock feature (changes status to needs_revision)
+   - Email notification on unlock
+
+5. **UI Improvements**
+   - Additional documents section for clients
+   - Responsive Tax Plans layout
+   - Better plan cards for all screen sizes
+
+---
+
+## Database Schema
+
+### Collections
+- **users**: {id, email, name, phone, password, user_type, admin_role, permissions, is_active}
+- **tax_plans**: {id, name, price, description, plan_type, features, required_documents, is_active}
+- **filing_requests**: {id, user_id, plan_id, status, payment_status, original_price, price, applied_offer, financial_year}
+- **documents**: {id, request_id, user_id, name, document_type, status, password, admin_notes, unlocked_by}
+- **messages**: {id, request_id, sender_id, content, timestamp, is_read}
+- **payments**: {id, request_id, user_id, amount, status, gateway, transaction_id}
+- **offers**: {id, code, name, description, discount_type, discount_value, valid_from, valid_until, max_uses, current_uses, used_by, applicable_plans, is_active}
+- **admin_settings**: {type, notification_email, new_case_email_enabled, payment_email_enabled, message_email_enabled}
+
+---
+
+## API Endpoints
+
+### Authentication
+- POST /api/auth/register
+- POST /api/auth/login
+
+### Plans
+- GET /api/plans (public)
+- GET /api/admin/plans
+- POST /api/admin/plans
+- PUT /api/admin/plans/{id}
+- DELETE /api/admin/plans/{id}
+
+### Offers
+- GET /api/offers/active (public)
+- POST /api/offers/validate (public)
+- GET /api/admin/offers
+- POST /api/admin/offers
+- PUT /api/admin/offers/{id}
+- DELETE /api/admin/offers/{id}
+
+### Requests
+- GET /api/requests
+- POST /api/requests (with offer support)
+- GET /api/admin/requests
+
+### Documents
+- POST /api/requests/{id}/documents/upload
+- PUT /api/admin/documents/{id}/status
+- POST /api/admin/documents/{id}/allow-change (unlock)
+- GET /api/documents/{id}/download
+
+### Settings (Super Admin only)
+- GET /api/admin/settings
+- PUT /api/admin/settings
+- GET /api/admin/permissions/available
+- PUT /api/admin/users/{id}/permissions
+
+---
 
 ## Test Credentials
-- **Admin**: admin@taxassist.com / admin123
-- **Client**: Can register through the app
+- **Super Admin**: superadmin@taxassist.com / super123
+- **CA Admin**: admin@taxassist.com / admin123
+- **Client**: testclient@example.com / test123
 
-## Prioritized Backlog
-### P0 (Critical)
-- All core features implemented ✅
-- Configurable storage (Local/AWS S3) ✅
-- Configurable payments (Mock/PhonePe ready) ✅
+---
 
-### P1 (High Priority)
-- PhonePe production integration (credentials needed)
-- AWS S3 production setup (credentials needed)
-- Email notifications for status updates
-- Document preview in browser
-- Password reset functionality
+## Mocked Services
+- **Email Service**: MOCKED (requires RESEND_API_KEY)
+- **Payment Gateway**: MOCKED (using mock provider)
+- **Storage**: LOCAL (can be switched to S3)
 
-### P2 (Medium Priority)
-- Razorpay payment gateway
-- Stripe payment gateway
-- AWS Cognito authentication
-- Multiple admin users with roles
-- Automated document validation
-- Report generation (PDF)
+---
 
-### P3 (Future)
-- Mobile app
-- Integration with government tax portals
-- AI-powered document classification
+## Pending/Future Tasks
 
-## Next Tasks
-1. Get PhonePe production credentials and test integration
-2. Get AWS credentials for S3 storage
-3. Add email notifications (SendGrid/Resend)
-4. Implement document preview functionality
-5. Add password reset flow
+### P1 - High Priority
+- [ ] Smart email notifications (batch multiple document updates into single email)
+- [ ] PhonePe payment gateway integration
+- [ ] AWS S3 storage integration
+
+### P2 - Medium Priority
+- [ ] Admin email composition feature (send custom emails to clients)
+- [ ] Enhanced user management (view user's all cases)
+
+### P3 - Low Priority
+- [ ] Session management improvements (investigate potential random logouts)
+- [ ] Mobile app consideration
+
+---
+
+## Environment Variables
+
+### Backend (.env)
+```
+MONGO_URL=mongodb://...
+DB_NAME=taxassist_db
+JWT_SECRET=your-secret
+STORAGE_PROVIDER=local (or s3)
+PAYMENT_GATEWAY=mock (or phonepe)
+RESEND_API_KEY=your-key (optional)
+ADMIN_NOTIFICATION_EMAIL=admin@example.com
+```
+
+### Frontend (.env)
+```
+REACT_APP_BACKEND_URL=https://your-domain.com
+```
+
+---
+
+## File Structure
+```
+/app
+├── backend/
+│   ├── server.py (main FastAPI app)
+│   ├── config.py (configuration)
+│   ├── requirements.txt
+│   ├── services/
+│   │   ├── email.py
+│   │   ├── payment.py
+│   │   └── storage.py
+│   └── tests/
+│       └── test_taxassist_features.py
+├── frontend/
+│   ├── src/
+│   │   ├── App.js
+│   │   ├── components/
+│   │   │   ├── AdminLayout.js
+│   │   │   ├── ClientLayout.js
+│   │   │   └── ui/ (shadcn)
+│   │   └── pages/
+│   │       ├── AdminDashboard.js
+│   │       ├── AdminPlans.js
+│   │       ├── AdminRequests.js
+│   │       ├── AdminDocuments.js
+│   │       ├── AdminMessages.js
+│   │       ├── AdminPayments.js
+│   │       ├── AdminUsers.js
+│   │       ├── AdminOffers.js
+│   │       ├── AdminSettings.js
+│   │       ├── ClientDashboard.js
+│   │       ├── ClientPlans.js
+│   │       ├── ClientRequest.js
+│   │       ├── ClientMessages.js
+│   │       └── LandingPage.js
+│   └── package.json
+└── memory/
+    └── PRD.md
+```
