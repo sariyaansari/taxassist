@@ -3,12 +3,14 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ClientLayout } from "../components/ClientLayout";
 import { api } from "../App";
 import { toast } from "sonner";
-import { Upload, FileText, Check, X, AlertTriangle, CreditCard, Send, ArrowLeft, RefreshCw, Plus } from "lucide-react";
+import { Upload, FileText, Check, X, AlertTriangle, CreditCard, Send, ArrowLeft, RefreshCw, Plus, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const ClientRequest = () => {
   const { requestId } = useParams();
@@ -23,10 +25,12 @@ const ClientRequest = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   
   // Upload state
-  const [uploadingFor, setUploadingFor] = useState(null); // Document type we're uploading for
-  const [replaceDocId, setReplaceDocId] = useState(null); // Document ID to replace
+  const [uploadingFor, setUploadingFor] = useState(null);
+  const [replaceDocId, setReplaceDocId] = useState(null);
   const [uploadFile, setUploadFile] = useState(null);
   const [docName, setDocName] = useState("");
+  const [docPassword, setDocPassword] = useState("");
+  const [hasPassword, setHasPassword] = useState(false);
   const [uploading, setUploading] = useState(false);
   
   // Payment state
