@@ -791,46 +791,19 @@ async def update_document_status(document_id: str, data: DocumentStatusUpdate, b
         }}
     )
     
-    # Send email notification if enabled
+    # Send email notification using smart batching
     if data.send_email:
         user = await db.users.find_one({"id": document["user_id"]}, {"_id": 0})
         request = await db.filing_requests.find_one({"id": document["request_id"]}, {"_id": 0})
         
         if user and request:
-            # Check if there are other pending document updates for this request
-            # to batch notifications
-            pending_reviews = await db.documents.find({
-                "request_id": document["request_id"],
-                "status": {"$in": ["pending"]},
-                "id": {"$ne": document_id}
-            }).to_list(10)
-            
-            if len(pending_reviews) == 0:
-                # No more pending - send batch notification
-                all_reviewed = await db.documents.find({
-                    "request_id": document["request_id"],
-                    "reviewed_at": {"$ne": None}
-                }, {"_id": 0, "file_data": 0}).to_list(100)
-                
-                # Get only recently reviewed (within last hour)
-                recent_reviews = [d for d in all_reviewed if d.get("reviewed_at")]
-                
-                if len(recent_reviews) > 1:
-                    # Send batch notification
-                    background_tasks.add_task(
-                        email_service.send_batch_document_update,
-                        user["email"], user["name"],
-                        recent_reviews, request["plan_name"], request["financial_year"]
-                    )
-                else:
-                    # Send single document notification
-                    background_tasks.add_task(
-                        email_service.send_document_status_update,
-                        user["email"], user["name"],
-                        document["name"], document["document_type"],
-                        data.status, data.admin_notes,
-                        request["plan_name"], request["financial_year"]
-                    )
+            # Queue notification for batching (will auto-send after 30 seconds of inactivity)
+            await email_service.queue_document_notification(
+                user["id"], user["email"], user["name"],
+                document["name"], document["document_type"],
+                data.status, data.admin_notes or "",
+                request["plan_name"], request["financial_year"]
+            )
     
     updated_doc = await db.documents.find_one({"id": document_id}, {"_id": 0, "file_data": 0})
     return updated_doc
