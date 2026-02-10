@@ -86,10 +86,16 @@ Build a comprehensive tax filing assistance application with:
    - Admin unlock feature (changes status to needs_revision)
    - Email notification on unlock
 
-5. **UI Improvements**
+5. **Smart Email Notifications**
+   - Notification queue with 30-second batching delay
+   - Multiple document updates consolidated into single email
+   - Prevents notification spam when reviewing multiple documents
+
+6. **UI Improvements**
    - Additional documents section for clients
    - Responsive Tax Plans layout
    - Better plan cards for all screen sizes
+   - Document replacement working (not duplication)
 
 ---
 
