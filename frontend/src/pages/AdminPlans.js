@@ -266,16 +266,16 @@ const AdminPlans = () => {
 };
 
 const PlanCard = ({ plan, onEdit, onDelete }) => (
-  <div className="bg-white rounded-xl border p-6" style={{ borderColor: 'var(--border)' }} data-testid={`plan-card-${plan.id}`}>
+  <div className="bg-white rounded-xl border p-6 h-full flex flex-col" style={{ borderColor: 'var(--border)' }} data-testid={`plan-card-${plan.id}`}>
     <div className="flex items-start justify-between mb-4">
-      <div>
-        <h3 className="text-lg font-semibold">{plan.name}</h3>
+      <div className="flex-1 min-w-0">
+        <h3 className="text-lg font-semibold truncate">{plan.name}</h3>
         <Badge variant="outline" className="mt-1">{plan.plan_type}</Badge>
       </div>
-      <p className="text-2xl font-bold mono" style={{ color: 'var(--accent)' }}>₹{plan.price.toLocaleString()}</p>
+      <p className="text-2xl font-bold mono shrink-0 ml-2" style={{ color: 'var(--accent)' }}>₹{plan.price.toLocaleString()}</p>
     </div>
-    <p className="text-sm opacity-70 mb-4">{plan.description}</p>
-    <div className="mb-4">
+    <p className="text-sm opacity-70 mb-4 line-clamp-2">{plan.description}</p>
+    <div className="mb-4 flex-grow">
       <p className="text-xs font-semibold uppercase opacity-50 mb-2">Required Docs</p>
       <div className="flex flex-wrap gap-1">
         {plan.required_documents.slice(0, 3).map((doc, idx) => (
@@ -286,7 +286,7 @@ const PlanCard = ({ plan, onEdit, onDelete }) => (
         )}
       </div>
     </div>
-    <div className="flex gap-2">
+    <div className="flex gap-2 mt-auto">
       <Button variant="outline" size="sm" onClick={() => onEdit(plan)} data-testid={`edit-plan-${plan.id}`}>
         <Edit2 size={16} className="mr-1" /> Edit
       </Button>
