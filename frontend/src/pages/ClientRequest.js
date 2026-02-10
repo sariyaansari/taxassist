@@ -133,19 +133,29 @@ const ClientRequest = () => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         const base64 = e.target.result.split(',')[1];
-        await api.post(`/requests/${requestId}/documents`, {
-          name: docName,
-          document_type: uploadingFor,
-          file_data: base64,
-          file_name: uploadFile.name
-        });
-        toast.success("Document uploaded successfully!");
-        resetUploadState();
-        fetchData();
+        try {
+          await api.post(`/requests/${requestId}/documents`, {
+            name: docName,
+            document_type: uploadingFor,
+            file_data: base64,
+            file_name: uploadFile.name,
+            password: hasPassword ? docPassword : null
+          });
+          toast.success(replaceDocId ? "Document replaced successfully!" : "Document uploaded successfully!");
+          resetUploadState();
+          fetchData();
+        } catch (err) {
+          if (err.response?.data?.detail?.includes("approved")) {
+            toast.error("This document is approved. Please message admin to request changes.");
+          } else {
+            toast.error(err.response?.data?.detail || "Failed to upload document");
+          }
+          setUploading(false);
+        }
       };
       reader.readAsDataURL(uploadFile);
     } catch (err) {
-      toast.error("Failed to upload document");
+      toast.error("Failed to read file");
       setUploading(false);
     }
   };
@@ -155,6 +165,8 @@ const ClientRequest = () => {
     setUploadingFor(null);
     setReplaceDocId(null);
     setDocName("");
+    setDocPassword("");
+    setHasPassword(false);
     setUploading(false);
   };
 
