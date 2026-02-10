@@ -65,6 +65,12 @@ const ClientRequest = () => {
     return documents.find(d => d.document_type === docType);
   };
 
+  // Get additional documents (not in required list)
+  const getAdditionalDocuments = () => {
+    if (!request) return [];
+    return documents.filter(d => !request.required_documents.includes(d.document_type));
+  };
+
   // Check if all required documents are uploaded and approved
   const allDocsApproved = () => {
     if (!request) return false;
