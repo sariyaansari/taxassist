@@ -380,6 +380,40 @@ const ClientRequest = () => {
               <Plus size={18} className="mr-2" /> Upload Additional Document
             </Button>
           </div>
+
+          {/* Additional Documents List */}
+          {getAdditionalDocuments().length > 0 && (
+            <div className="mt-6 pt-6 border-t" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="font-semibold mb-4 flex items-center gap-2">
+                <FileText size={18} /> Additional Documents Uploaded
+              </h3>
+              <div className="space-y-3">
+                {getAdditionalDocuments().map((doc) => (
+                  <div 
+                    key={doc.id}
+                    className="p-3 rounded-lg border flex items-center justify-between"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: `${getDocStatus(doc.document_type).color}20` }}
+                      >
+                        <FileText size={18} style={{ color: getDocStatus(doc.document_type).color }} />
+                      </div>
+                      <div>
+                        <p className="font-medium">{doc.name}</p>
+                        <p className="text-sm" style={{ color: getDocStatus(doc.document_type).color }}>
+                          {doc.status.replace('_', ' ')}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline">Additional</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Payment Section - Only show if all docs uploaded and not rejected */}
