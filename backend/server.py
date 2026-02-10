@@ -1090,6 +1090,13 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
     
     unread_messages = await db.messages.count_documents({"sender_type": "client", "is_read": False})
     
+    # Offer stats
+    active_offers = await db.offers.count_documents({"is_active": True})
+    total_offer_uses = 0
+    offers = await db.offers.find({}, {"_id": 0, "current_uses": 1}).to_list(100)
+    for offer in offers:
+        total_offer_uses += offer.get("current_uses", 0)
+    
     return {
         "total_requests": total_requests,
         "pending_requests": pending_requests,
@@ -1100,6 +1107,8 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
         "total_admins": total_admins,
         "total_revenue": total_revenue,
         "unread_messages": unread_messages,
+        "active_offers": active_offers,
+        "total_offer_uses": total_offer_uses,
         "config": {
             "payment_gateway": config.payment_gateway.value,
             "storage_provider": config.storage_provider.value,
