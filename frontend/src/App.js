@@ -202,6 +202,11 @@ function App() {
               <AdminPayments />
             </ProtectedRoute>
           } />
+          <Route path="/admin/users" element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminUsers />
+            </ProtectedRoute>
+          } />
           
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
