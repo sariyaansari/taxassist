@@ -110,26 +110,30 @@ h1, h2, h3, h4 {
 
 /* Button Animations */
 .btn-primary {
-  background-color: var(--accent);
-  color: var(--accent-foreground);
+  background-color: var(--accent) !important;
+  color: white !important;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .btn-primary:hover {
+  background-color: var(--accent) !important;
+  color: white !important;
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(194, 94, 0, 0.3);
 }
 
 .btn-primary:active {
   transform: scale(0.98);
+  background-color: var(--accent) !important;
+  color: white !important;
 }
 
 /* Button Focus States - Ensure text visibility */
 .btn-primary:focus,
 .btn-primary:focus-visible {
-  background-color: var(--accent);
-  color: var(--accent-foreground) !important;
-  outline: 2px solid var(--accent);
+  background-color: var(--accent) !important;
+  color: white !important;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
