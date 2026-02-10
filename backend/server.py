@@ -137,6 +137,47 @@ class DocumentChangeRequest(BaseModel):
     document_id: str
     reason: str
 
+# ================== OFFER MODELS ==================
+
+class OfferCreate(BaseModel):
+    code: str
+    name: str
+    description: str
+    discount_type: str  # "percentage" or "fixed"
+    discount_value: float
+    valid_from: str  # ISO date string
+    valid_until: str  # ISO date string
+    max_uses: Optional[int] = None
+    applicable_plans: Optional[List[str]] = None  # If None, applies to all plans
+
+class OfferUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[float] = None
+    valid_until: Optional[str] = None
+    max_uses: Optional[int] = None
+    applicable_plans: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+class ApplyOfferRequest(BaseModel):
+    code: str
+    email: str
+    phone: str
+
+# ================== ADMIN SETTINGS MODELS ==================
+
+class AdminSettingsUpdate(BaseModel):
+    notification_email: Optional[str] = None
+    new_case_email_enabled: Optional[bool] = None
+    payment_email_enabled: Optional[bool] = None
+    message_email_enabled: Optional[bool] = None
+
+# ================== CA ADMIN PERMISSIONS MODELS ==================
+
+class CAAdminPermissionsUpdate(BaseModel):
+    permissions: List[str]
+
 # ================== HELPER FUNCTIONS ==================
 
 def hash_password(password: str) -> str:
