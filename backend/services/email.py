@@ -364,6 +364,16 @@ class EmailService:
         """
         return self._send_email(to_email, subject, self._get_base_template(content))
 
+    async def queue_document_notification(self, user_id: str, user_email: str, user_name: str,
+                                          doc_name: str, doc_type: str, status: str,
+                                          admin_notes: str, plan_name: str, financial_year: str):
+        """Queue a document notification for batching"""
+        await notification_queue.add_notification(
+            user_id, user_email, user_name,
+            doc_name, doc_type, status,
+            admin_notes, plan_name, financial_year
+        )
+
 
 # Singleton instance
 email_service = EmailService()
