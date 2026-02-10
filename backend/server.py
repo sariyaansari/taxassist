@@ -1009,6 +1009,197 @@ async def get_public_config():
         }
     }
 
+# ================== OFFERS MANAGEMENT ==================
+
+@api_router.post("/admin/offers")
+async def create_offer(data: OfferCreate, admin: dict = Depends(require_super_admin)):
+    """Create a new discount offer (Super Admin only)"""
+    # Check if code already exists
+    existing = await db.offers.find_one({"code": data.code.upper()})
+    if existing:
+        raise HTTPException(status_code=400, detail="Offer code already exists")
+    
+    offer = {
+        "id": str(uuid.uuid4()),
+        "code": data.code.upper(),
+        "name": data.name,
+        "description": data.description,
+        "discount_type": data.discount_type,
+        "discount_value": data.discount_value,
+        "valid_from": data.valid_from,
+        "valid_until": data.valid_until,
+        "max_uses": data.max_uses,
+        "current_uses": 0,
+        "applicable_plans": data.applicable_plans,
+        "used_by": [],  # List of {email, phone, used_at}
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["id"]
+    }
+    await db.offers.insert_one(offer)
+    offer.pop("_id", None)
+    return offer
+
+@api_router.get("/admin/offers")
+async def get_all_offers(admin: dict = Depends(require_admin)):
+    """Get all offers (admin only)"""
+    if not check_permission(admin, "manage_offers"):
+        if admin.get("admin_role") != "super_admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+    
+    offers = await db.offers.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return offers
+
+@api_router.put("/admin/offers/{offer_id}")
+async def update_offer(offer_id: str, data: OfferUpdate, admin: dict = Depends(require_super_admin)):
+    """Update an offer (Super Admin only)"""
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
+    result = await db.offers.update_one({"id": offer_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    
+    offer = await db.offers.find_one({"id": offer_id}, {"_id": 0})
+    return offer
+
+@api_router.delete("/admin/offers/{offer_id}")
+async def deactivate_offer(offer_id: str, admin: dict = Depends(require_super_admin)):
+    """Deactivate an offer (Super Admin only)"""
+    result = await db.offers.update_one({"id": offer_id}, {"$set": {"is_active": False}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    return {"message": "Offer deactivated"}
+
+@api_router.post("/offers/validate")
+async def validate_offer(data: ApplyOfferRequest):
+    """Validate an offer code and check if user can use it"""
+    offer = await db.offers.find_one({
+        "code": data.code.upper(),
+        "is_active": True
+    }, {"_id": 0})
+    
+    if not offer:
+        raise HTTPException(status_code=404, detail="Invalid offer code")
+    
+    # Check validity dates
+    now = datetime.now(timezone.utc).isoformat()
+    if now < offer["valid_from"]:
+        raise HTTPException(status_code=400, detail="This offer is not yet active")
+    if now > offer["valid_until"]:
+        raise HTTPException(status_code=400, detail="This offer has expired")
+    
+    # Check max uses
+    if offer.get("max_uses") and offer["current_uses"] >= offer["max_uses"]:
+        raise HTTPException(status_code=400, detail="This offer has reached its usage limit")
+    
+    # Check if user already used this offer
+    email_lower = data.email.lower()
+    phone_clean = data.phone.replace(" ", "").replace("-", "")
+    
+    for usage in offer.get("used_by", []):
+        if usage.get("email", "").lower() == email_lower or usage.get("phone", "").replace(" ", "").replace("-", "") == phone_clean:
+            raise HTTPException(status_code=400, detail="You have already used this offer")
+    
+    return {
+        "valid": True,
+        "offer_id": offer["id"],
+        "code": offer["code"],
+        "name": offer["name"],
+        "discount_type": offer["discount_type"],
+        "discount_value": offer["discount_value"],
+        "applicable_plans": offer["applicable_plans"]
+    }
+
+@api_router.get("/offers/active")
+async def get_active_offers():
+    """Get active offers (for client display)"""
+    now = datetime.now(timezone.utc).isoformat()
+    offers = await db.offers.find({
+        "is_active": True,
+        "valid_from": {"$lte": now},
+        "valid_until": {"$gte": now}
+    }, {"_id": 0, "used_by": 0}).to_list(20)
+    
+    # Filter out offers that have reached max uses
+    valid_offers = []
+    for offer in offers:
+        if not offer.get("max_uses") or offer["current_uses"] < offer["max_uses"]:
+            valid_offers.append({
+                "code": offer["code"],
+                "name": offer["name"],
+                "description": offer["description"],
+                "discount_type": offer["discount_type"],
+                "discount_value": offer["discount_value"],
+                "valid_until": offer["valid_until"],
+                "applicable_plans": offer.get("applicable_plans")
+            })
+    
+    return valid_offers
+
+# ================== ADMIN SETTINGS ==================
+
+@api_router.get("/admin/settings")
+async def get_admin_settings(admin: dict = Depends(require_super_admin)):
+    """Get admin settings (Super Admin only)"""
+    settings = await db.admin_settings.find_one({"type": "global"}, {"_id": 0})
+    if not settings:
+        # Return default settings
+        settings = {
+            "type": "global",
+            "notification_email": admin["email"],
+            "new_case_email_enabled": True,
+            "payment_email_enabled": True,
+            "message_email_enabled": True
+        }
+    return settings
+
+@api_router.put("/admin/settings")
+async def update_admin_settings(data: AdminSettingsUpdate, admin: dict = Depends(require_super_admin)):
+    """Update admin settings (Super Admin only)"""
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_data["type"] = "global"
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_by"] = admin["id"]
+    
+    await db.admin_settings.update_one(
+        {"type": "global"},
+        {"$set": update_data},
+        upsert=True
+    )
+    
+    settings = await db.admin_settings.find_one({"type": "global"}, {"_id": 0})
+    return settings
+
+# ================== CA ADMIN PERMISSIONS ==================
+
+@api_router.get("/admin/permissions/available")
+async def get_available_permissions(admin: dict = Depends(require_super_admin)):
+    """Get list of available permissions for CA Admins"""
+    return CA_ADMIN_AVAILABLE_PERMISSIONS
+
+@api_router.put("/admin/users/{user_id}/permissions")
+async def update_ca_admin_permissions(user_id: str, data: CAAdminPermissionsUpdate, admin: dict = Depends(require_super_admin)):
+    """Update CA Admin permissions (Super Admin only)"""
+    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if target_user.get("admin_role") == "super_admin":
+        raise HTTPException(status_code=400, detail="Cannot modify super admin permissions")
+    
+    if target_user.get("user_type") != "admin":
+        raise HTTPException(status_code=400, detail="User is not an admin")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"permissions": data.permissions}}
+    )
+    
+    updated_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    return updated_user
+
 @api_router.get("/")
 async def root():
     return {
