@@ -309,7 +309,7 @@ async def login(data: UserLogin):
     if not user or user["password"] != hash_password(data.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    if user.get("is_active") == False:
+    if user.get("is_active") is False:
         raise HTTPException(status_code=401, detail="Account is deactivated")
     
     token = create_token(user["id"], user["user_type"], user.get("admin_role"))
