@@ -846,7 +846,7 @@ async def allow_document_change(document_id: str, background_tasks: BackgroundTa
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    result = await db.documents.update_one(
+    await db.documents.update_one(
         {"id": document_id},
         {"$set": {
             "status": "needs_revision", 
