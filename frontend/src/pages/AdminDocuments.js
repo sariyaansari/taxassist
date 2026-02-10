@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { AdminLayout } from "../components/AdminLayout";
-import { api } from "../App";
+import { api, useAuth } from "../App";
 import { toast } from "sonner";
-import { Search, Check, X, AlertTriangle, Download, FileText, User, Calendar, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, Check, X, AlertTriangle, Download, FileText, User, Calendar, ChevronDown, ChevronRight, Unlock, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 const AdminDocuments = () => {
+  const { user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +22,9 @@ const AdminDocuments = () => {
   const [adminNotes, setAdminNotes] = useState("");
   const [updating, setUpdating] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState({});
+
+  const isSuperAdmin = user?.admin_role === "super_admin";
+  const canUnlock = isSuperAdmin || (user?.permissions || []).includes("unlock_documents");
 
   useEffect(() => {
     fetchData();
@@ -71,6 +75,18 @@ const AdminDocuments = () => {
     }
   };
 
+  const handleUnlockDocument = async (docId) => {
+    if (!window.confirm("This will allow the client to replace this approved document. Continue?")) return;
+    
+    try {
+      await api.post(`/admin/documents/${docId}/allow-change`);
+      toast.success("Document unlocked for replacement");
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to unlock document");
+    }
+  };
+
   const handleDownload = async (docId, fileName) => {
     try {
       const res = await api.get(`/documents/${docId}/download`);
@@ -78,7 +94,13 @@ const AdminDocuments = () => {
       link.href = `data:application/octet-stream;base64,${res.data.file_data}`;
       link.download = res.data.file_name || fileName;
       link.click();
-      toast.success("Download started");
+      
+      // Show password if exists
+      if (res.data.password) {
+        toast.info(`Document Password: ${res.data.password}`, { duration: 10000 });
+      } else {
+        toast.success("Download started");
+      }
     } catch (err) {
       toast.error("Failed to download document");
     }
@@ -232,6 +254,11 @@ const AdminDocuments = () => {
                                 <div>
                                   <p className="font-medium">{doc.name}</p>
                                   <p className="text-sm opacity-60">{doc.document_type} • {new Date(doc.uploaded_at).toLocaleDateString()}</p>
+                                  {doc.password && (
+                                    <p className="text-xs text-orange-600 flex items-center gap-1 mt-1">
+                                      <Lock size={12} /> Password protected
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
@@ -244,6 +271,17 @@ const AdminDocuments = () => {
                                 >
                                   <Download size={16} />
                                 </Button>
+                                {doc.status === 'approved' && canUnlock && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleUnlockDocument(doc.id)}
+                                    className="text-orange-600 border-orange-300"
+                                    data-testid={`unlock-${doc.id}`}
+                                  >
+                                    <Unlock size={16} />
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   onClick={() => handleReview(doc)}
@@ -281,6 +319,11 @@ const AdminDocuments = () => {
                     <p className="font-medium">{selectedDoc.name}</p>
                     <p className="text-sm opacity-60">{selectedDoc.document_type}</p>
                     <p className="text-sm opacity-60">Uploaded by: {selectedDoc.user_name}</p>
+                    {selectedDoc.password && (
+                      <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                        <Lock size={12} /> Password: {selectedDoc.password}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
