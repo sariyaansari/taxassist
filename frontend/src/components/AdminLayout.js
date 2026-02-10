@@ -68,7 +68,7 @@ export const AdminLayout = ({ children }) => {
             </div>
             <div>
               <p className="font-medium text-sm">{user?.name}</p>
-              <p className="text-xs opacity-60">Administrator</p>
+              {getRoleBadge()}
             </div>
           </div>
           <Button
