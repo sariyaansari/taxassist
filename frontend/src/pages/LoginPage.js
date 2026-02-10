@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../App";
 import { toast } from "sonner";
-import { FileText, Eye, EyeOff } from "lucide-react";
+import { FileText, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,13 +12,15 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
     if (!email || !password) {
-      toast.error("Please fill in all fields");
+      setError("Please fill in all fields");
       return;
     }
     setLoading(true);
@@ -27,7 +29,8 @@ const LoginPage = () => {
       toast.success("Welcome back!");
       navigate(user.user_type === "admin" ? "/admin" : "/dashboard");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Login failed");
+      const errorMsg = err.response?.data?.detail || "Invalid email or password";
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -48,6 +51,22 @@ const LoginPage = () => {
           <h1 className="text-3xl font-bold mb-2" style={{ fontFamily: 'Fraunces, serif' }}>Welcome Back</h1>
           <p className="opacity-70 mb-8">Sign in to continue to your dashboard</p>
 
+          {/* Error Message */}
+          {error && (
+            <div 
+              className="mb-6 p-4 rounded-lg flex items-center gap-3"
+              style={{ 
+                backgroundColor: '#ffebee', 
+                border: '1px solid #ffcdd2',
+                color: '#c62828'
+              }}
+              data-testid="login-error"
+            >
+              <AlertCircle size={20} />
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6" data-testid="login-form">
             <div>
               <Label htmlFor="email">Email Address</Label>
@@ -55,7 +74,7 @@ const LoginPage = () => {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setError(""); }}
                 placeholder="you@example.com"
                 className="mt-2"
                 data-testid="email-input"
@@ -69,7 +88,7 @@ const LoginPage = () => {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
                   placeholder="••••••••"
                   data-testid="password-input"
                 />
