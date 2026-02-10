@@ -18,6 +18,7 @@ import AdminRequests from "./pages/AdminRequests";
 import AdminDocuments from "./pages/AdminDocuments";
 import AdminMessages from "./pages/AdminMessages";
 import AdminPayments from "./pages/AdminPayments";
+import AdminUsers from "./pages/AdminUsers";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
