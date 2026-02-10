@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../App";
-import { FileText, LayoutDashboard, FolderOpen, FileCheck, MessageCircle, CreditCard, LogOut, Menu, X, Users } from "lucide-react";
+import { FileText, LayoutDashboard, FolderOpen, FileCheck, MessageCircle, CreditCard, LogOut, Menu, X, Users, Tag, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -11,15 +11,34 @@ export const AdminLayout = ({ children }) => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const navItems = [
-    { path: "/admin", label: "Dashboard", icon: <LayoutDashboard size={20} /> },
-    { path: "/admin/plans", label: "Tax Plans", icon: <FolderOpen size={20} /> },
-    { path: "/admin/requests", label: "Requests", icon: <FileText size={20} /> },
-    { path: "/admin/documents", label: "Documents", icon: <FileCheck size={20} /> },
-    { path: "/admin/messages", label: "Messages", icon: <MessageCircle size={20} /> },
-    { path: "/admin/payments", label: "Payments", icon: <CreditCard size={20} /> },
-    { path: "/admin/users", label: "Users", icon: <Users size={20} /> }
+  const isSuperAdmin = user?.admin_role === "super_admin";
+  const userPermissions = user?.permissions || [];
+
+  // Check if user has permission
+  const hasPermission = (permission) => {
+    if (isSuperAdmin) return true;
+    return userPermissions.includes(permission) || userPermissions.includes("all");
+  };
+
+  // Navigation items with permission requirements
+  const allNavItems = [
+    { path: "/admin", label: "Dashboard", icon: <LayoutDashboard size={20} />, permission: null },
+    { path: "/admin/plans", label: "Tax Plans", icon: <FolderOpen size={20} />, permission: "manage_plans" },
+    { path: "/admin/requests", label: "Requests", icon: <FileText size={20} />, permission: "view_requests" },
+    { path: "/admin/documents", label: "Documents", icon: <FileCheck size={20} />, permission: "review_documents" },
+    { path: "/admin/messages", label: "Messages", icon: <MessageCircle size={20} />, permission: "send_messages" },
+    { path: "/admin/payments", label: "Payments", icon: <CreditCard size={20} />, permission: "view_payments" },
+    { path: "/admin/offers", label: "Offers", icon: <Tag size={20} />, permission: "manage_offers", superAdminOnly: true },
+    { path: "/admin/users", label: "Users", icon: <Users size={20} />, permission: "view_users" },
+    { path: "/admin/settings", label: "Settings", icon: <Settings size={20} />, permission: null, superAdminOnly: true }
   ];
+
+  // Filter nav items based on permissions
+  const navItems = allNavItems.filter(item => {
+    if (item.superAdminOnly && !isSuperAdmin) return false;
+    if (item.permission === null) return true; // Dashboard and Settings (super admin only handled above)
+    return hasPermission(item.permission);
+  });
 
   const handleLogout = () => {
     logout();
