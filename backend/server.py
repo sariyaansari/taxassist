@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -17,8 +17,9 @@ import base64
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# Import configuration
+# Import configuration and services
 from config import config, StorageProvider, PaymentGateway
+from services.email import email_service
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -29,8 +30,21 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'tax-assist-secret-key-2024')
 security = HTTPBearer()
 
-app = FastAPI(title="TaxAssist API", version="1.1.0")
+app = FastAPI(title="TaxAssist API", version="2.0.0")
 api_router = APIRouter(prefix="/api")
+
+# ================== ENUMS & CONSTANTS ==================
+
+ADMIN_ROLES = {
+    "super_admin": {
+        "name": "Super Admin",
+        "permissions": ["all"]
+    },
+    "ca_admin": {
+        "name": "CA Admin",
+        "permissions": ["view_requests", "review_documents", "send_messages", "view_payments"]
+    }
+}
 
 # ================== MODELS ==================
 
@@ -39,7 +53,8 @@ class UserCreate(BaseModel):
     password: str
     name: str
     phone: str
-    user_type: str = "client"  # client or admin
+    user_type: str = "client"
+    admin_role: Optional[str] = None  # super_admin or ca_admin
 
 class UserLogin(BaseModel):
     email: str
@@ -52,27 +67,16 @@ class UserResponse(BaseModel):
     name: str
     phone: str
     user_type: str
+    admin_role: Optional[str] = None
     created_at: str
 
 class TaxPlanCreate(BaseModel):
-    name: str
-    description: str
-    plan_type: str  # salary or business
-    price: float
-    required_documents: List[str]
-    features: List[str]
-
-class TaxPlanResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
     name: str
     description: str
     plan_type: str
     price: float
     required_documents: List[str]
     features: List[str]
-    is_active: bool
-    created_at: str
 
 class ClientProfileUpdate(BaseModel):
     name: Optional[str] = None
@@ -90,37 +94,60 @@ class TaxFilingRequestCreate(BaseModel):
 class DocumentUpload(BaseModel):
     name: str
     document_type: str
-    file_data: str  # base64 encoded
+    file_data: str
     file_name: str
+    password: Optional[str] = None  # Password for protected documents
 
 class DocumentStatusUpdate(BaseModel):
-    status: str  # pending, approved, rejected, needs_revision
+    status: str
     admin_notes: Optional[str] = None
+    send_email: bool = True
 
 class MessageCreate(BaseModel):
     content: str
-    recipient_id: Optional[str] = None  # For admin sending to specific user
+    recipient_id: Optional[str] = None
 
-# Payment Models - Updated for gateway flexibility
 class PaymentInitiate(BaseModel):
     request_id: str
     amount: float
     return_url: Optional[str] = None
 
-class PaymentVerify(BaseModel):
-    payment_id: str
-    gateway_data: Optional[Dict] = None
+class AdminEmailSend(BaseModel):
+    to_email: str
+    subject: str
+    message: str
+
+class AdminUserCreate(BaseModel):
+    email: str
+    password: str
+    name: str
+    phone: str
+    admin_role: str  # super_admin or ca_admin
+    permissions: Optional[List[str]] = None  # Custom permissions for ca_admin
+
+class AdminUserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    admin_role: Optional[str] = None
+    permissions: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+class DocumentChangeRequest(BaseModel):
+    document_id: str
+    reason: str
 
 # ================== HELPER FUNCTIONS ==================
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
-def create_token(user_id: str, user_type: str) -> str:
+def create_token(user_id: str, user_type: str, admin_role: str = None) -> str:
     payload = {
         "user_id": user_id,
         "user_type": user_type,
-        "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7  # 7 days
+        "admin_role": admin_role,
+        "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -142,24 +169,30 @@ async def require_admin(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
-# ================== CONFIGURATION ENDPOINT ==================
+async def require_super_admin(user: dict = Depends(get_current_user)):
+    if user["user_type"] != "admin" or user.get("admin_role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    return user
 
-@api_router.get("/config/public")
-async def get_public_config():
-    """Get public configuration for frontend"""
-    return {
-        "payment_gateway": config.payment_gateway.value,
-        "storage_provider": config.storage_provider.value,
-        "features": {
-            "aws_enabled": config.is_aws_storage(),
-            "phonepe_enabled": config.payment_gateway == PaymentGateway.PHONEPE
-        }
-    }
+def check_permission(user: dict, permission: str) -> bool:
+    """Check if admin user has specific permission"""
+    if user.get("admin_role") == "super_admin":
+        return True
+    user_permissions = user.get("permissions", [])
+    return permission in user_permissions or "all" in user_permissions
+
+async def get_super_admin_email() -> Optional[str]:
+    """Get super admin email for notifications"""
+    super_admin = await db.users.find_one(
+        {"user_type": "admin", "admin_role": "super_admin", "is_active": {"$ne": False}},
+        {"_id": 0, "email": 1}
+    )
+    return super_admin.get("email") if super_admin else os.environ.get('ADMIN_NOTIFICATION_EMAIL')
 
 # ================== AUTH ROUTES ==================
 
 @api_router.post("/auth/register")
-async def register(data: UserCreate):
+async def register(data: UserCreate, background_tasks: BackgroundTasks):
     existing = await db.users.find_one({"email": data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -171,11 +204,19 @@ async def register(data: UserCreate):
         "name": data.name,
         "phone": data.phone,
         "user_type": data.user_type,
+        "admin_role": data.admin_role if data.user_type == "admin" else None,
+        "permissions": [],
+        "is_active": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "profile": {}
     }
     await db.users.insert_one(user)
-    token = create_token(user["id"], user["user_type"])
+    
+    # Send welcome email
+    if data.user_type == "client":
+        background_tasks.add_task(email_service.send_welcome_email, data.email, data.name)
+    
+    token = create_token(user["id"], user["user_type"], user.get("admin_role"))
     return {
         "token": token,
         "user": {
@@ -183,7 +224,8 @@ async def register(data: UserCreate):
             "email": user["email"],
             "name": user["name"],
             "phone": user["phone"],
-            "user_type": user["user_type"]
+            "user_type": user["user_type"],
+            "admin_role": user.get("admin_role")
         }
     }
 
@@ -193,7 +235,10 @@ async def login(data: UserLogin):
     if not user or user["password"] != hash_password(data.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    token = create_token(user["id"], user["user_type"])
+    if user.get("is_active") == False:
+        raise HTTPException(status_code=401, detail="Account is deactivated")
+    
+    token = create_token(user["id"], user["user_type"], user.get("admin_role"))
     return {
         "token": token,
         "user": {
@@ -201,7 +246,9 @@ async def login(data: UserLogin):
             "email": user["email"],
             "name": user["name"],
             "phone": user["phone"],
-            "user_type": user["user_type"]
+            "user_type": user["user_type"],
+            "admin_role": user.get("admin_role"),
+            "permissions": user.get("permissions", [])
         }
     }
 
@@ -213,6 +260,8 @@ async def get_me(user: dict = Depends(get_current_user)):
         "name": user["name"],
         "phone": user["phone"],
         "user_type": user["user_type"],
+        "admin_role": user.get("admin_role"),
+        "permissions": user.get("permissions", []),
         "profile": user.get("profile", {})
     }
 
@@ -227,10 +276,97 @@ async def update_profile(data: ClientProfileUpdate, user: dict = Depends(get_cur
     updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
     return updated_user
 
-# ================== TAX PLANS (ADMIN) ==================
+# ================== ADMIN USER MANAGEMENT ==================
+
+@api_router.get("/admin/users")
+async def get_all_users(admin: dict = Depends(require_admin)):
+    """Get all registered users (clients and admins)"""
+    users = await db.users.find({}, {"_id": 0, "password": 0}).sort("created_at", -1).to_list(500)
+    
+    # Get request counts for each user
+    for user in users:
+        if user["user_type"] == "client":
+            request_count = await db.filing_requests.count_documents({"user_id": user["id"]})
+            user["request_count"] = request_count
+    
+    return users
+
+@api_router.get("/admin/users/{user_id}")
+async def get_user_details(user_id: str, admin: dict = Depends(require_admin)):
+    """Get detailed user information with their cases"""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get user's requests
+    requests = await db.filing_requests.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+    
+    return {
+        "user": user,
+        "requests": requests
+    }
+
+@api_router.post("/admin/users/admin")
+async def create_admin_user(data: AdminUserCreate, admin: dict = Depends(require_super_admin)):
+    """Create new admin user (Super Admin only)"""
+    existing = await db.users.find_one({"email": data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    if data.admin_role not in ADMIN_ROLES:
+        raise HTTPException(status_code=400, detail="Invalid admin role")
+    
+    permissions = data.permissions if data.permissions else ADMIN_ROLES[data.admin_role]["permissions"]
+    
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": data.email,
+        "password": hash_password(data.password),
+        "name": data.name,
+        "phone": data.phone,
+        "user_type": "admin",
+        "admin_role": data.admin_role,
+        "permissions": permissions,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["id"]
+    }
+    await db.users.insert_one(user)
+    user.pop("_id", None)
+    user.pop("password", None)
+    return user
+
+@api_router.put("/admin/users/{user_id}")
+async def update_admin_user(user_id: str, data: AdminUserUpdate, admin: dict = Depends(require_super_admin)):
+    """Update admin user (Super Admin only)"""
+    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.users.update_one({"id": user_id}, {"$set": update_data})
+    
+    updated_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    return updated_user
+
+@api_router.get("/admin/admins")
+async def get_admin_users(admin: dict = Depends(require_super_admin)):
+    """Get all admin users (Super Admin only)"""
+    admins = await db.users.find(
+        {"user_type": "admin"},
+        {"_id": 0, "password": 0}
+    ).to_list(100)
+    return admins
+
+# ================== TAX PLANS ==================
 
 @api_router.post("/admin/plans")
 async def create_plan(data: TaxPlanCreate, admin: dict = Depends(require_admin)):
+    if not check_permission(admin, "manage_plans"):
+        if admin.get("admin_role") != "super_admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+    
     plan = {
         "id": str(uuid.uuid4()),
         "name": data.name,
@@ -254,10 +390,7 @@ async def get_all_plans_admin(admin: dict = Depends(require_admin)):
 
 @api_router.put("/admin/plans/{plan_id}")
 async def update_plan(plan_id: str, data: TaxPlanCreate, admin: dict = Depends(require_admin)):
-    result = await db.tax_plans.update_one(
-        {"id": plan_id},
-        {"$set": data.model_dump()}
-    )
+    result = await db.tax_plans.update_one({"id": plan_id}, {"$set": data.model_dump()})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Plan not found")
     plan = await db.tax_plans.find_one({"id": plan_id}, {"_id": 0})
@@ -265,15 +398,10 @@ async def update_plan(plan_id: str, data: TaxPlanCreate, admin: dict = Depends(r
 
 @api_router.delete("/admin/plans/{plan_id}")
 async def delete_plan(plan_id: str, admin: dict = Depends(require_admin)):
-    result = await db.tax_plans.update_one(
-        {"id": plan_id},
-        {"$set": {"is_active": False}}
-    )
+    result = await db.tax_plans.update_one({"id": plan_id}, {"$set": {"is_active": False}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Plan not found")
     return {"message": "Plan deactivated"}
-
-# ================== PUBLIC PLANS ==================
 
 @api_router.get("/plans")
 async def get_active_plans():
@@ -329,38 +457,102 @@ async def get_request(request_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
     return request
 
+@api_router.get("/admin/requests")
+async def get_all_requests(admin: dict = Depends(require_admin)):
+    requests = await db.filing_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return requests
+
+@api_router.put("/admin/requests/{request_id}/status")
+async def update_request_status(request_id: str, status: str, background_tasks: BackgroundTasks, admin: dict = Depends(require_admin)):
+    request = await db.filing_requests.find_one({"id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    await db.filing_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Send notification email
+    user = await db.users.find_one({"id": request["user_id"]}, {"_id": 0})
+    if user:
+        background_tasks.add_task(
+            email_service.send_case_status_update,
+            user["email"], user["name"], status,
+            request["plan_name"], request["financial_year"]
+        )
+    
+    updated_request = await db.filing_requests.find_one({"id": request_id}, {"_id": 0})
+    return updated_request
+
 # ================== DOCUMENTS ==================
 
 @api_router.post("/requests/{request_id}/documents")
-async def upload_document(request_id: str, data: DocumentUpload, user: dict = Depends(get_current_user)):
+async def upload_document(request_id: str, data: DocumentUpload, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     request = await db.filing_requests.find_one({"id": request_id, "user_id": user["id"]}, {"_id": 0})
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
-    # Use configurable storage service
-    storage_key = None
-    if config.is_aws_storage():
-        from services.storage import get_storage_service
-        storage = get_storage_service()
-        storage_key = await storage.upload_file(data.file_data, data.file_name, f"documents/{request_id}")
-    
-    document = {
-        "id": str(uuid.uuid4()),
+    # Check if document of this type already exists
+    existing_doc = await db.documents.find_one({
         "request_id": request_id,
-        "user_id": user["id"],
-        "user_name": user["name"],
-        "name": data.name,
         "document_type": data.document_type,
-        "file_name": data.file_name,
-        "file_data": data.file_data if not config.is_aws_storage() else None,  # Only store in DB if not using S3
-        "storage_key": storage_key,  # S3 key if using AWS
-        "storage_provider": config.storage_provider.value,
-        "status": "pending",
-        "admin_notes": "",
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "reviewed_at": None
-    }
-    await db.documents.insert_one(document)
+        "user_id": user["id"]
+    }, {"_id": 0})
+    
+    if existing_doc:
+        # If approved, don't allow replacement without admin approval
+        if existing_doc["status"] == "approved":
+            raise HTTPException(
+                status_code=400, 
+                detail="This document is already approved. Please send a message to admin to request changes."
+            )
+        
+        # Replace existing document (for rejected/needs_revision/pending)
+        await db.documents.update_one(
+            {"id": existing_doc["id"]},
+            {"$set": {
+                "name": data.name,
+                "file_name": data.file_name,
+                "file_data": data.file_data if not config.is_aws_storage() else None,
+                "password": data.password,
+                "status": "pending",
+                "admin_notes": "",
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_at": None,
+                "is_replacement": True,
+                "previous_status": existing_doc["status"]
+            }}
+        )
+        doc_id = existing_doc["id"]
+    else:
+        # Create new document
+        storage_key = None
+        if config.is_aws_storage():
+            from services.storage import get_storage_service
+            storage = get_storage_service()
+            storage_key = await storage.upload_file(data.file_data, data.file_name, f"documents/{request_id}")
+        
+        doc_id = str(uuid.uuid4())
+        document = {
+            "id": doc_id,
+            "request_id": request_id,
+            "user_id": user["id"],
+            "user_name": user["name"],
+            "name": data.name,
+            "document_type": data.document_type,
+            "file_name": data.file_name,
+            "file_data": data.file_data if not config.is_aws_storage() else None,
+            "storage_key": storage_key,
+            "storage_provider": config.storage_provider.value,
+            "password": data.password,
+            "status": "pending",
+            "admin_notes": "",
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "reviewed_at": None,
+            "is_replacement": False
+        }
+        await db.documents.insert_one(document)
     
     # Update request status
     await db.filing_requests.update_one(
@@ -368,8 +560,21 @@ async def upload_document(request_id: str, data: DocumentUpload, user: dict = De
         {"$set": {"status": "documents_uploaded", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
-    document.pop("_id", None)
-    document.pop("file_data", None)  # Don't return file data in response
+    # Check if all documents are now uploaded - notify admin
+    all_docs = await db.documents.find({"request_id": request_id}, {"_id": 0}).to_list(100)
+    uploaded_types = {d["document_type"] for d in all_docs}
+    required_types = set(request["required_documents"])
+    
+    if required_types.issubset(uploaded_types):
+        admin_email = await get_super_admin_email()
+        if admin_email:
+            background_tasks.add_task(
+                email_service.send_admin_new_submission,
+                admin_email, user["name"], user["email"],
+                request["plan_name"], request["financial_year"], len(all_docs)
+            )
+    
+    document = await db.documents.find_one({"id": doc_id}, {"_id": 0, "file_data": 0})
     return document
 
 @api_router.get("/requests/{request_id}/documents")
@@ -391,14 +596,21 @@ async def download_document(document_id: str, user: dict = Depends(get_current_u
     if user["user_type"] != "admin" and document["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Handle different storage providers
     if document.get("storage_provider") == "aws_s3" and document.get("storage_key"):
         from services.storage import get_storage_service
         storage = get_storage_service()
         file_data, file_name = await storage.download_file(document["storage_key"])
-        return {"file_data": base64.b64encode(file_data).decode(), "file_name": file_name}
+        return {
+            "file_data": base64.b64encode(file_data).decode(),
+            "file_name": file_name,
+            "password": document.get("password")
+        }
     else:
-        return {"file_data": document.get("file_data", ""), "file_name": document["file_name"]}
+        return {
+            "file_data": document.get("file_data", ""),
+            "file_name": document["file_name"],
+            "password": document.get("password")
+        }
 
 # ================== ADMIN DOCUMENTS ==================
 
@@ -408,8 +620,12 @@ async def get_all_documents(admin: dict = Depends(require_admin)):
     return documents
 
 @api_router.put("/admin/documents/{document_id}/status")
-async def update_document_status(document_id: str, data: DocumentStatusUpdate, admin: dict = Depends(require_admin)):
-    result = await db.documents.update_one(
+async def update_document_status(document_id: str, data: DocumentStatusUpdate, background_tasks: BackgroundTasks, admin: dict = Depends(require_admin)):
+    document = await db.documents.find_one({"id": document_id}, {"_id": 0})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    await db.documents.update_one(
         {"id": document_id},
         {"$set": {
             "status": data.status,
@@ -418,34 +634,66 @@ async def update_document_status(document_id: str, data: DocumentStatusUpdate, a
             "reviewed_by": admin["id"]
         }}
     )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Document not found")
     
-    document = await db.documents.find_one({"id": document_id}, {"_id": 0, "file_data": 0})
-    return document
+    # Send email notification if enabled
+    if data.send_email:
+        user = await db.users.find_one({"id": document["user_id"]}, {"_id": 0})
+        request = await db.filing_requests.find_one({"id": document["request_id"]}, {"_id": 0})
+        
+        if user and request:
+            # Check if there are other pending document updates for this request
+            # to batch notifications
+            pending_reviews = await db.documents.find({
+                "request_id": document["request_id"],
+                "status": {"$in": ["pending"]},
+                "id": {"$ne": document_id}
+            }).to_list(10)
+            
+            if len(pending_reviews) == 0:
+                # No more pending - send batch notification
+                all_reviewed = await db.documents.find({
+                    "request_id": document["request_id"],
+                    "reviewed_at": {"$ne": None}
+                }, {"_id": 0, "file_data": 0}).to_list(100)
+                
+                # Get only recently reviewed (within last hour)
+                recent_reviews = [d for d in all_reviewed if d.get("reviewed_at")]
+                
+                if len(recent_reviews) > 1:
+                    # Send batch notification
+                    background_tasks.add_task(
+                        email_service.send_batch_document_update,
+                        user["email"], user["name"],
+                        recent_reviews, request["plan_name"], request["financial_year"]
+                    )
+                else:
+                    # Send single document notification
+                    background_tasks.add_task(
+                        email_service.send_document_status_update,
+                        user["email"], user["name"],
+                        document["name"], document["document_type"],
+                        data.status, data.admin_notes,
+                        request["plan_name"], request["financial_year"]
+                    )
+    
+    updated_doc = await db.documents.find_one({"id": document_id}, {"_id": 0, "file_data": 0})
+    return updated_doc
 
-# ================== ADMIN REQUESTS ==================
-
-@api_router.get("/admin/requests")
-async def get_all_requests(admin: dict = Depends(require_admin)):
-    requests = await db.filing_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return requests
-
-@api_router.put("/admin/requests/{request_id}/status")
-async def update_request_status(request_id: str, status: str, admin: dict = Depends(require_admin)):
-    result = await db.filing_requests.update_one(
-        {"id": request_id},
-        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+@api_router.post("/admin/documents/{document_id}/allow-change")
+async def allow_document_change(document_id: str, admin: dict = Depends(require_admin)):
+    """Allow client to change an approved document"""
+    result = await db.documents.update_one(
+        {"id": document_id},
+        {"$set": {"status": "needs_revision", "admin_notes": "Admin has allowed you to replace this document."}}
     )
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Request not found")
-    request = await db.filing_requests.find_one({"id": request_id}, {"_id": 0})
-    return request
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"message": "Document change allowed"}
 
 # ================== MESSAGES ==================
 
 @api_router.post("/messages")
-async def send_message(data: MessageCreate, user: dict = Depends(get_current_user)):
+async def send_message(data: MessageCreate, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     message = {
         "id": str(uuid.uuid4()),
         "sender_id": user["id"],
@@ -457,6 +705,16 @@ async def send_message(data: MessageCreate, user: dict = Depends(get_current_use
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.messages.insert_one(message)
+    
+    # Notify admin of new client message
+    if user["user_type"] == "client":
+        admin_email = await get_super_admin_email()
+        if admin_email:
+            background_tasks.add_task(
+                email_service.send_admin_new_message,
+                admin_email, user["name"], data.content
+            )
+    
     message.pop("_id", None)
     return message
 
@@ -490,8 +748,6 @@ async def mark_message_read(message_id: str, user: dict = Depends(get_current_us
     await db.messages.update_one({"id": message_id}, {"$set": {"is_read": True}})
     return {"success": True}
 
-# ================== ADMIN MESSAGES ==================
-
 @api_router.get("/admin/messages/recent")
 async def get_recent_messages_per_user(admin: dict = Depends(require_admin)):
     pipeline = [
@@ -517,11 +773,26 @@ async def get_recent_messages_per_user(admin: dict = Depends(require_admin)):
         for msg in recent_messages
     ]
 
-# ================== PAYMENTS - Updated for Gateway Flexibility ==================
+# ================== ADMIN EMAIL ==================
+
+@api_router.post("/admin/email/send")
+async def send_admin_email(data: AdminEmailSend, admin: dict = Depends(require_admin)):
+    """Send custom email to client"""
+    success = email_service.send_custom_email(
+        data.to_email,
+        data.subject,
+        data.message,
+        admin["name"]
+    )
+    if success:
+        return {"message": "Email sent successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+# ================== PAYMENTS ==================
 
 @api_router.post("/payments/initiate")
 async def initiate_payment(data: PaymentInitiate, user: dict = Depends(get_current_user)):
-    """Initiate payment through configured gateway"""
     from services.payment import payment_service, PaymentRequest
     
     request = await db.filing_requests.find_one({"id": data.request_id, "user_id": user["id"]}, {"_id": 0})
@@ -542,7 +813,6 @@ async def initiate_payment(data: PaymentInitiate, user: dict = Depends(get_curre
     
     response = await payment_service.create_payment(payment_request)
     
-    # Store payment record
     payment_record = {
         "id": response.payment_id,
         "request_id": data.request_id,
@@ -565,56 +835,8 @@ async def initiate_payment(data: PaymentInitiate, user: dict = Depends(get_curre
         "message": response.message
     }
 
-@api_router.post("/payments/verify")
-async def verify_payment(data: PaymentVerify, user: dict = Depends(get_current_user)):
-    """Verify payment status"""
-    from services.payment import payment_service
-    
-    verification = await payment_service.verify_payment(data.payment_id, data.gateway_data or {})
-    
-    # Update payment record
-    await db.payments.update_one(
-        {"id": data.payment_id},
-        {"$set": {
-            "status": verification.status.value,
-            "gateway_transaction_id": verification.gateway_transaction_id,
-            "verified_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-    
-    # If payment successful, update request status
-    if verification.verified:
-        payment = await db.payments.find_one({"id": data.payment_id}, {"_id": 0})
-        if payment:
-            await db.filing_requests.update_one(
-                {"id": payment["request_id"]},
-                {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
-            )
-    
-    return {
-        "payment_id": verification.payment_id,
-        "status": verification.status.value,
-        "verified": verification.verified,
-        "message": verification.message
-    }
-
-@api_router.get("/payments/{payment_id}/status")
-async def check_payment_status(payment_id: str, user: dict = Depends(get_current_user)):
-    """Check payment status"""
-    from services.payment import payment_service
-    
-    verification = await payment_service.check_status(payment_id)
-    return {
-        "payment_id": verification.payment_id,
-        "status": verification.status.value,
-        "verified": verification.verified,
-        "message": verification.message
-    }
-
-# Legacy payment endpoint for backward compatibility
 @api_router.post("/payments")
-async def create_payment_legacy(data: dict, user: dict = Depends(get_current_user)):
-    """Legacy payment endpoint - creates mock payment directly"""
+async def create_payment_legacy(data: dict, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     request_id = data.get("request_id")
     amount = data.get("amount")
     payment_method = data.get("payment_method", "mock")
@@ -641,12 +863,31 @@ async def create_payment_legacy(data: dict, user: dict = Depends(get_current_use
         {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
+    # Send notifications
+    background_tasks.add_task(
+        email_service.send_payment_confirmation,
+        user["email"], user["name"], amount,
+        request["plan_name"], request["financial_year"]
+    )
+    
+    admin_email = await get_super_admin_email()
+    if admin_email:
+        background_tasks.add_task(
+            email_service.send_admin_payment_received,
+            admin_email, user["name"], amount, request["plan_name"]
+        )
+    
     payment.pop("_id", None)
     return payment
 
 @api_router.get("/payments")
 async def get_my_payments(user: dict = Depends(get_current_user)):
     payments = await db.payments.find({"user_id": user["id"]}, {"_id": 0}).to_list(100)
+    return payments
+
+@api_router.get("/admin/payments")
+async def get_all_payments(admin: dict = Depends(require_admin)):
+    payments = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return payments
 
 # ================== ADMIN STATS ==================
@@ -661,6 +902,7 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
     pending_documents = await db.documents.count_documents({"status": "pending"})
     
     total_users = await db.users.count_documents({"user_type": "client"})
+    total_admins = await db.users.count_documents({"user_type": "admin"})
     
     payments = await db.payments.find({"status": "completed"}, {"_id": 0}).to_list(1000)
     total_revenue = sum(p["amount"] for p in payments)
@@ -674,26 +916,33 @@ async def get_admin_stats(admin: dict = Depends(require_admin)):
         "total_documents": total_documents,
         "pending_documents": pending_documents,
         "total_users": total_users,
+        "total_admins": total_admins,
         "total_revenue": total_revenue,
         "unread_messages": unread_messages,
         "config": {
             "payment_gateway": config.payment_gateway.value,
-            "storage_provider": config.storage_provider.value
+            "storage_provider": config.storage_provider.value,
+            "email_enabled": email_service.enabled
         }
     }
 
-@api_router.get("/admin/payments")
-async def get_all_payments(admin: dict = Depends(require_admin)):
-    payments = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return payments
-
-# ================== ROOT ==================
+@api_router.get("/config/public")
+async def get_public_config():
+    return {
+        "payment_gateway": config.payment_gateway.value,
+        "storage_provider": config.storage_provider.value,
+        "features": {
+            "aws_enabled": config.is_aws_storage(),
+            "phonepe_enabled": config.payment_gateway == PaymentGateway.PHONEPE,
+            "email_enabled": email_service.enabled
+        }
+    }
 
 @api_router.get("/")
 async def root():
     return {
         "message": "TaxAssist API",
-        "version": "1.1.0",
+        "version": "2.0.0",
         "config": {
             "payment_gateway": config.payment_gateway.value,
             "storage_provider": config.storage_provider.value
