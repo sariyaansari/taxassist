@@ -46,6 +46,19 @@ ADMIN_ROLES = {
     }
 }
 
+# Available CA Admin Permissions
+CA_ADMIN_AVAILABLE_PERMISSIONS = [
+    {"id": "view_requests", "name": "View Requests", "description": "Can view all tax filing requests"},
+    {"id": "review_documents", "name": "Review Documents", "description": "Can review and update document status"},
+    {"id": "send_messages", "name": "Send Messages", "description": "Can send messages to clients"},
+    {"id": "view_payments", "name": "View Payments", "description": "Can view payment records"},
+    {"id": "manage_plans", "name": "Manage Plans", "description": "Can create and edit tax plans"},
+    {"id": "manage_offers", "name": "Manage Offers", "description": "Can create and manage discount offers"},
+    {"id": "view_users", "name": "View Users", "description": "Can view client list"},
+    {"id": "send_emails", "name": "Send Emails", "description": "Can send custom emails to clients"},
+    {"id": "unlock_documents", "name": "Unlock Documents", "description": "Can unlock approved documents for re-upload"}
+]
+
 # ================== MODELS ==================
 
 class UserCreate(BaseModel):
