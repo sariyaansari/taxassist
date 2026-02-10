@@ -237,11 +237,28 @@ def check_permission(user: dict, permission: str) -> bool:
 
 async def get_super_admin_email() -> Optional[str]:
     """Get super admin email for notifications"""
+    # First check admin settings
+    settings = await db.admin_settings.find_one({"type": "global"}, {"_id": 0})
+    if settings and settings.get("notification_email"):
+        return settings["notification_email"]
+    
+    # Fall back to super admin email
     super_admin = await db.users.find_one(
         {"user_type": "admin", "admin_role": "super_admin", "is_active": {"$ne": False}},
         {"_id": 0, "email": 1}
     )
     return super_admin.get("email") if super_admin else os.environ.get('ADMIN_NOTIFICATION_EMAIL')
+
+def require_permission(permission: str):
+    """Decorator factory to check if admin has specific permission"""
+    async def permission_checker(user: dict = Depends(require_admin)):
+        if user.get("admin_role") == "super_admin":
+            return user
+        user_permissions = user.get("permissions", [])
+        if permission not in user_permissions and "all" not in user_permissions:
+            raise HTTPException(status_code=403, detail=f"Permission denied: {permission} required")
+        return user
+    return permission_checker
 
 # ================== AUTH ROUTES ==================
 
