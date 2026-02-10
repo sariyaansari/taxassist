@@ -145,11 +145,15 @@ const AdminPlans = () => {
                 <User size={20} style={{ color: 'var(--accent)' }} />
                 <h2 className="text-xl font-semibold">Salary Plans ({salaryPlans.length})</h2>
               </div>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {salaryPlans.map((plan) => (
-                  <PlanCard key={plan.id} plan={plan} onEdit={handleOpenDialog} onDelete={handleDelete} />
-                ))}
-              </div>
+              {salaryPlans.length === 0 ? (
+                <p className="text-sm opacity-60 p-4 bg-gray-50 rounded-lg">No salary plans created yet</p>
+              ) : (
+                <div className="grid sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {salaryPlans.map((plan) => (
+                    <PlanCard key={plan.id} plan={plan} onEdit={handleOpenDialog} onDelete={handleDelete} />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Business Plans */}
@@ -158,11 +162,15 @@ const AdminPlans = () => {
                 <Briefcase size={20} style={{ color: 'var(--accent)' }} />
                 <h2 className="text-xl font-semibold">Business Plans ({businessPlans.length})</h2>
               </div>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businessPlans.map((plan) => (
-                  <PlanCard key={plan.id} plan={plan} onEdit={handleOpenDialog} onDelete={handleDelete} />
-                ))}
-              </div>
+              {businessPlans.length === 0 ? (
+                <p className="text-sm opacity-60 p-4 bg-gray-50 rounded-lg">No business plans created yet</p>
+              ) : (
+                <div className="grid sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {businessPlans.map((plan) => (
+                    <PlanCard key={plan.id} plan={plan} onEdit={handleOpenDialog} onDelete={handleDelete} />
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
