@@ -492,10 +492,78 @@ async def get_plan(plan_id: str):
 # ================== TAX FILING REQUESTS ==================
 
 @api_router.post("/requests")
-async def create_filing_request(data: TaxFilingRequestCreate, user: dict = Depends(get_current_user)):
+async def create_filing_request(data: TaxFilingRequestCreate, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     plan = await db.tax_plans.find_one({"id": data.plan_id, "is_active": True}, {"_id": 0})
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    
+    original_price = plan["price"]
+    final_price = original_price
+    applied_offer = None
+    
+    # Apply offer if provided
+    if data.offer_code:
+        offer_email = data.offer_email or user["email"]
+        offer_phone = data.offer_phone or user.get("phone", "")
+        
+        offer = await db.offers.find_one({
+            "code": data.offer_code.upper(),
+            "is_active": True
+        }, {"_id": 0})
+        
+        if offer:
+            now = datetime.now(timezone.utc).isoformat()
+            is_valid = (
+                now >= offer["valid_from"] and 
+                now <= offer["valid_until"] and
+                (not offer.get("max_uses") or offer["current_uses"] < offer["max_uses"])
+            )
+            
+            # Check if applicable to this plan
+            if offer.get("applicable_plans") and plan["id"] not in offer["applicable_plans"]:
+                is_valid = False
+            
+            # Check if user already used this offer
+            email_lower = offer_email.lower()
+            phone_clean = offer_phone.replace(" ", "").replace("-", "")
+            
+            for usage in offer.get("used_by", []):
+                if usage.get("email", "").lower() == email_lower or usage.get("phone", "").replace(" ", "").replace("-", "") == phone_clean:
+                    is_valid = False
+                    break
+            
+            if is_valid:
+                # Calculate discount
+                if offer["discount_type"] == "percentage":
+                    discount_amount = (original_price * offer["discount_value"]) / 100
+                else:
+                    discount_amount = offer["discount_value"]
+                
+                final_price = max(0, original_price - discount_amount)
+                applied_offer = {
+                    "offer_id": offer["id"],
+                    "code": offer["code"],
+                    "name": offer["name"],
+                    "discount_type": offer["discount_type"],
+                    "discount_value": offer["discount_value"],
+                    "discount_amount": discount_amount
+                }
+                
+                # Record offer usage
+                await db.offers.update_one(
+                    {"id": offer["id"]},
+                    {
+                        "$inc": {"current_uses": 1},
+                        "$push": {
+                            "used_by": {
+                                "email": offer_email,
+                                "phone": offer_phone,
+                                "user_id": user["id"],
+                                "used_at": now
+                            }
+                        }
+                    }
+                )
     
     request = {
         "id": str(uuid.uuid4()),
@@ -505,7 +573,9 @@ async def create_filing_request(data: TaxFilingRequestCreate, user: dict = Depen
         "plan_id": data.plan_id,
         "plan_name": plan["name"],
         "plan_type": plan["plan_type"],
-        "price": plan["price"],
+        "original_price": original_price,
+        "price": final_price,
+        "applied_offer": applied_offer,
         "required_documents": plan["required_documents"],
         "financial_year": data.financial_year,
         "status": "pending",
@@ -514,6 +584,18 @@ async def create_filing_request(data: TaxFilingRequestCreate, user: dict = Depen
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     await db.filing_requests.insert_one(request)
+    
+    # Notify admin of new case
+    admin_email = await get_super_admin_email()
+    if admin_email:
+        settings = await db.admin_settings.find_one({"type": "global"}, {"_id": 0})
+        if not settings or settings.get("new_case_email_enabled", True):
+            background_tasks.add_task(
+                email_service.send_admin_new_submission,
+                admin_email, user["name"], user["email"],
+                plan["name"], data.financial_year, 0
+            )
+    
     request.pop("_id", None)
     return request
 
