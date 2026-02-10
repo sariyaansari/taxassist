@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../App";
-import { FileText, LayoutDashboard, FolderOpen, FileCheck, MessageCircle, CreditCard, LogOut, Menu, X } from "lucide-react";
+import { FileText, LayoutDashboard, FolderOpen, FileCheck, MessageCircle, CreditCard, LogOut, Menu, X, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 
 export const AdminLayout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -16,12 +17,20 @@ export const AdminLayout = ({ children }) => {
     { path: "/admin/requests", label: "Requests", icon: <FileText size={20} /> },
     { path: "/admin/documents", label: "Documents", icon: <FileCheck size={20} /> },
     { path: "/admin/messages", label: "Messages", icon: <MessageCircle size={20} /> },
-    { path: "/admin/payments", label: "Payments", icon: <CreditCard size={20} /> }
+    { path: "/admin/payments", label: "Payments", icon: <CreditCard size={20} /> },
+    { path: "/admin/users", label: "Users", icon: <Users size={20} /> }
   ];
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const getRoleBadge = () => {
+    if (user?.admin_role === 'super_admin') {
+      return <Badge className="text-xs bg-orange-500 text-white">Super Admin</Badge>;
+    }
+    return <Badge className="text-xs">CA Admin</Badge>;
   };
 
   return (
