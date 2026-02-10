@@ -3,38 +3,132 @@ Email Service for TaxAssist
 Handles all email notifications with smart batching
 """
 import os
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-from typing import Optional, List
-from datetime import datetime
+import asyncio
+from typing import Optional, List, Dict
+from datetime import datetime, timezone
+from collections import defaultdict
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Try to import resend, fall back to mock if not available
+try:
+    import resend
+    RESEND_AVAILABLE = True
+except ImportError:
+    RESEND_AVAILABLE = False
+    logger.warning("Resend not available, email service will be mocked")
+
+class NotificationQueue:
+    """Queue for batching document notifications"""
+    
+    def __init__(self, delay_seconds: int = 30):
+        self.delay_seconds = delay_seconds
+        self._queues: Dict[str, List[dict]] = defaultdict(list)  # user_id -> list of notifications
+        self._timers: Dict[str, asyncio.Task] = {}  # user_id -> timer task
+        self._email_service = None
+    
+    def set_email_service(self, service):
+        self._email_service = service
+    
+    async def add_notification(self, user_id: str, user_email: str, user_name: str,
+                               doc_name: str, doc_type: str, status: str, 
+                               admin_notes: str, plan_name: str, financial_year: str):
+        """Add a notification to the queue"""
+        notification = {
+            "user_email": user_email,
+            "user_name": user_name,
+            "name": doc_name,
+            "document_type": doc_type,
+            "status": status,
+            "admin_notes": admin_notes,
+            "plan_name": plan_name,
+            "financial_year": financial_year,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        self._queues[user_id].append(notification)
+        
+        # Cancel existing timer if any
+        if user_id in self._timers and not self._timers[user_id].done():
+            self._timers[user_id].cancel()
+        
+        # Start new timer
+        self._timers[user_id] = asyncio.create_task(self._process_after_delay(user_id))
+    
+    async def _process_after_delay(self, user_id: str):
+        """Wait for delay, then process queued notifications"""
+        try:
+            await asyncio.sleep(self.delay_seconds)
+            await self._send_batch(user_id)
+        except asyncio.CancelledError:
+            # Timer was cancelled, new notification added
+            pass
+    
+    async def _send_batch(self, user_id: str):
+        """Send batched notification email"""
+        if user_id not in self._queues or not self._queues[user_id]:
+            return
+        
+        notifications = self._queues.pop(user_id, [])
+        if not notifications:
+            return
+        
+        # Get user info from first notification
+        user_email = notifications[0]["user_email"]
+        user_name = notifications[0]["user_name"]
+        plan_name = notifications[0]["plan_name"]
+        financial_year = notifications[0]["financial_year"]
+        
+        if len(notifications) == 1:
+            # Single notification - send individual email
+            n = notifications[0]
+            if self._email_service:
+                self._email_service.send_document_status_update(
+                    user_email, user_name, n["name"], n["document_type"],
+                    n["status"], n["admin_notes"], plan_name, financial_year
+                )
+        else:
+            # Multiple notifications - send batch email
+            if self._email_service:
+                self._email_service.send_batch_document_update(
+                    user_email, user_name, notifications, plan_name, financial_year
+                )
+        
+        logger.info(f"Sent batched notification to {user_email} with {len(notifications)} updates")
+
+# Global notification queue instance
+notification_queue = NotificationQueue(delay_seconds=30)
+
 class EmailService:
     def __init__(self):
-        self.api_key = os.environ.get('SENDGRID_API_KEY')
+        self.api_key = os.environ.get('RESEND_API_KEY')
         self.sender_email = os.environ.get('SENDER_EMAIL', 'noreply@taxassist.com')
         self.admin_email = os.environ.get('ADMIN_NOTIFICATION_EMAIL')
-        self.enabled = bool(self.api_key)
+        self.enabled = bool(self.api_key) and RESEND_AVAILABLE
+        
+        if self.api_key and RESEND_AVAILABLE:
+            resend.api_key = self.api_key
+        
+        # Set up notification queue
+        notification_queue.set_email_service(self)
     
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
-        """Send email via SendGrid"""
+        """Send email via Resend"""
         if not self.enabled:
             logger.warning(f"Email service disabled. Would send to {to_email}: {subject}")
             return False
         
         try:
-            message = Mail(
-                from_email=self.sender_email,
-                to_emails=to_email,
-                subject=subject,
-                html_content=html_content
-            )
-            sg = SendGridAPIClient(self.api_key)
-            response = sg.send(message)
+            params = {
+                "from": self.sender_email,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content
+            }
+            resend.Emails.send(params)
             logger.info(f"Email sent to {to_email}: {subject}")
-            return response.status_code == 202
+            return True
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {str(e)}")
             return False
